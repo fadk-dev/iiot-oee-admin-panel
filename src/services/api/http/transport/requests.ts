@@ -55,18 +55,23 @@ export async function reqJson<T>(opts: ReqOpts, parse?: (raw: unknown) => T): Pr
 
 export async function reqList<T>(
   opts: ReqOpts,
-  mapItem: (raw: unknown) => T,
+  // FAT-309: mapper boleh mengembalikan null untuk melewati satu baris
+  // (mis. baris stasiun di daftar edge device) — baris null dibuang,
+  // bukan menggagalkan seluruh halaman. Pemanggil lama (mapper selalu
+  // mengembalikan T) tidak berubah perilakunya.
+  mapItem: (raw: unknown) => T | null,
   fallbackLimit = 50,
 ): Promise<CursorPageResponse<T>> {
   const raw = await reqJson<unknown>(opts);
   const { items, meta } = splitList(raw);
-  const data = items.map((it) => mapItem(it));
+  const data = items.map((it) => mapItem(it)).filter((x): x is T => x !== null);
   return { data, pagination: pageMeta(meta, fallbackLimit, data.length) };
 }
 
 export async function reqAllPages<T>(
   basePath: string,
-  mapItem: (raw: unknown) => T,
+  // FAT-309: lihat reqList — mapper boleh mengembalikan null (baris dilewati).
+  mapItem: (raw: unknown) => T | null,
   signal?: AbortSignal,
   endpointKey?: ReqOpts['endpointKey'],
 ): Promise<T[]> {

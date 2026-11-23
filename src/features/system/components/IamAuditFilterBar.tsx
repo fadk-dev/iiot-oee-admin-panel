@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Select } from '../../../components/ui/Select';
 import type { IamAuditDraft } from '../utils/iamAudit';
+import { formatIamAuditResultLabel } from '../utils/iamAudit';
 
 interface IamAuditFilterBarProps {
   draft: IamAuditDraft;
@@ -11,18 +12,24 @@ interface IamAuditFilterBarProps {
   /** Pintasan satu klik: keputusan = DENY, langsung terapkan. */
   onDenyOnly: () => void;
   isApplying: boolean;
-  /** Jumlah baris hasil filter (server + Resource/Action). */
+  /** Total baris yang cocok dengan filter server (dari envelope server). */
   resultCount: number;
+  /**
+   * Baris yang cocok dengan filter teks Resource/Action DI HALAMAN INI.
+   * Ditampilkan hanya bila filter teks aktif — lihat formatIamAuditResultLabel.
+   */
+  pageMatchCount?: number;
 }
 
 /**
- * Filter halaman Audit IAM (P33.6, FAT-301) — dipindah dari AuditTab
- * (tab lama) dengan tambahan: pintasan "Hanya DENY" dan filter teks
- * Resource/Action (client-side; belum ada di kontrak server).
+ * Filter halaman Audit IAM (P33.6, FAT-301; paging server-side P33.9,
+ * FAT-305) — dipindah dari AuditTab (tab lama) dengan tambahan: pintasan
+ * "Hanya DENY" dan filter teks Resource/Action (client-side; belum ada di
+ * kontrak server).
  *
  * Filter server (Subjek/Keputusan/Mode/Dari/Sampai) dikirim sebagai query
  * ke GET /access-control/audit saat "Terapkan"; Resource/Action hanya
- * menyaring daftar yang sudah dimuat.
+ * menyaring halaman yang sudah dimuat.
  */
 export const IamAuditFilterBar: React.FC<IamAuditFilterBarProps> = ({
   draft,
@@ -32,7 +39,11 @@ export const IamAuditFilterBar: React.FC<IamAuditFilterBarProps> = ({
   onDenyOnly,
   isApplying,
   resultCount,
-}) => (
+  pageMatchCount,
+}) => {
+  const textFiltering =
+    draft.resourceQuery.trim() !== '' || draft.actionQuery.trim() !== '';
+  return (
   <form
     className="flex flex-wrap items-end gap-2"
     onSubmit={(e) => {
@@ -115,7 +126,11 @@ export const IamAuditFilterBar: React.FC<IamAuditFilterBarProps> = ({
       Reset
     </Button>
     <span className="text-[11px] text-slate-500 ml-auto">
-      Menampilkan {resultCount} keputusan
+      {formatIamAuditResultLabel(
+        resultCount,
+        textFiltering ? pageMatchCount : undefined,
+      )}
     </span>
   </form>
-);
+  );
+};

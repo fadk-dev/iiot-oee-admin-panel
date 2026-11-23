@@ -30,11 +30,33 @@ function parseDeviceCredential(raw: unknown): DeviceCredential {
   return credential;
 }
 
+/**
+ * FAT-309: pemetaan SATU baris daftar devices yang toleran terhadap stasiun.
+ *
+ * Server mengirim stasiun (STATION-/KIOSK-/ADMIN-, mis. ADMIN-CONSOLE-01)
+ * sebagai baris devices biasa, tetapi EdgeDeviceSchema menolak device_id
+ * non-STM32 — satu baris stasiun membuat mapDevice() melempar
+ * INVALID_RESPONSE untuk SELURUH daftar (live 2026-11-23: /admin/devices
+ * 0 perangkat + useMasterAssetsQuery gagal → Analytics ringkasan/timeline/
+ * Per Jam gagal muat). Baris non-STM32 dilewati di sini (return null,
+ * dibuang reqList) — BUKAN error: stasiun dilayani getStations/mapStation
+ * di halaman Stations. Regex sama dengan EdgeDeviceSchema
+ * (schemas/dto-assets.ts) supaya kedua tempat tidak bisa menyimpang.
+ */
+const STM32_DEVICE_ID = /^STM32-[A-Za-z0-9_-]+$/;
+
+export function mapEdgeDeviceRow(raw: unknown): EdgeDevice | null {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const id = r.deviceId ?? r.device_id;
+  if (typeof id !== 'string' || !STM32_DEVICE_ID.test(id)) return null;
+  return mapDevice(raw);
+}
+
 export const httpDevices = {
   // -- Devices (9 ops; command HMI-only — tidak ada di sini) ---------------
   async getDevices(signal?: AbortSignal): Promise<EdgeDevice[]> {
     checkAbortHttp(signal);
-    return reqAllPages(ADMIN_ENDPOINTS.DEVICES_LIST.buildPath(), mapDevice, signal, 'DEVICES_LIST');
+    return reqAllPages(ADMIN_ENDPOINTS.DEVICES_LIST.buildPath(), mapEdgeDeviceRow, signal, 'DEVICES_LIST');
   },
 
   async getDeviceById(deviceId: string, signal?: AbortSignal): Promise<EdgeDevice> {

@@ -9,6 +9,8 @@ import type { IamAuditDecision } from '../../../types/iam';
 interface IamAuditTableProps {
   decisions: IamAuditDecision[];
   isLoading?: boolean;
+  /** Halaman sedang diambil ulang (Berikutnya/Sebelumnya/Awal) — tombol paging dikunci. */
+  isFetching?: boolean;
   error?: unknown;
   onRetry?: () => void;
   pageIndex: number;
@@ -20,9 +22,11 @@ interface IamAuditTableProps {
 }
 
 /**
- * Tabel keputusan otorisasi Audit IAM (P33.6, FAT-301) — kolom dipindah
- * dari AuditTab (tab lama) tanpa perubahan isi: Waktu, Subjek, Keputusan,
- * Action & Resource, Alasan.
+ * Tabel keputusan otorisasi Audit IAM (P33.6, FAT-301; paging server-side
+ * P33.9, FAT-305) — kolom dipindah dari AuditTab (tab lama) tanpa
+ * perubahan isi: Waktu, Subjek, Keputusan, Action & Resource, Alasan.
+ * Halaman yang tampil adalah SATU halaman server (25 baris); mundur
+ * memakai tumpukan cursor di hook, bukan cache halaman.
  *
  * Subjek menaut ke Pemeriksa Izin Pengguna (`/admin/access-control`
  * tab inspector) — belum ada rute detail pengguna, jadi tautan memakai
@@ -32,6 +36,7 @@ interface IamAuditTableProps {
 export const IamAuditTable: React.FC<IamAuditTableProps> = ({
   decisions,
   isLoading = false,
+  isFetching = false,
   error,
   onRetry,
   pageIndex,
@@ -109,6 +114,7 @@ export const IamAuditTable: React.FC<IamAuditTableProps> = ({
       columns={columns}
       getRowId={(d) => d.id}
       isLoading={isLoading}
+      isFetching={isFetching}
       error={error}
       onRetry={onRetry}
       emptyTitle="Belum ada keputusan audit"

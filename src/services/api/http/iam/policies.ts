@@ -11,9 +11,10 @@
  * (§3.4, spec 042) — TANPA `reason` di baris policy (hanya di audit IAM).
  */
 import { MUTATION_TIMEOUT_MS, assertLanForMutation, assertAuthenticatedHttp, reqJson, reqList, checkAbortHttp } from '../transport';
+import { num, splitList } from '../primitives';
 import { mapIamPolicy, mapIamAuditDecision, mapIamSubjectEffectivePermissions } from '../mappers';
 import { ADMIN_ENDPOINTS } from '../../endpoints';
-import { IamPolicyRule, IamAuditDecision, IamAuditFilters, IamEffectivePermissions } from '../../../../types/iam';
+import { IamPolicyRule, IamAuditDecision, IamAuditFilters, IamAuditPage, IamEffectivePermissions } from '../../../../types/iam';
 
 const IAM_READ_CAPABILITY = 'access_control.read' as const;
 const IAM_MANAGE_CAPABILITY = 'access_control.manage' as const;
@@ -144,10 +145,15 @@ export const httpIamPolicies = {
   },
 
   /**
-   * §3.4: filter `subject/decision/mode/from/to` dikirim sebagai query
-   * (bukan hanya `limit`).
+   * P33.9 (FAT-305): paging server-side (B33.5, OpenAPI live 2026-11-23) —
+   * kirim `cursor` + `limit`, baca `pagination.nextCursor`/`hasMore`/
+   * `totalCount` dari envelope. `totalCount` dibaca eksplisit di sini
+   * (camelCase): `pageMeta`/`normalizeListResponse` hanya mengenal
+   * `count`/`total_count`, jadi memakai `reqList` akan mengembalikan
+   * jumlah baris halaman sebagai total — salah. Bila backend tidak
+   * mengirim totalCount, fallback = jumlah baris halaman ini.
    */
-  async getIamAuditDecisions(filters: IamAuditFilters = {}, signal?: AbortSignal): Promise<IamAuditDecision[]> {
+  async getIamAuditDecisions(filters: IamAuditFilters = {}, signal?: AbortSignal): Promise<IamAuditPage> {
     checkAbortHttp(signal);
     assertAuthenticatedHttp();
     const limit = filters.limit ?? 100;
@@ -157,7 +163,8 @@ export const httpIamPolicies = {
     if (filters.mode) query.mode = filters.mode;
     if (filters.from) query.from = filters.from;
     if (filters.to) query.to = filters.to;
-    return reqList(
+    if (filters.cursor) query.cursor = filters.cursor;
+    const raw = await reqJson<unknown>(
       {
         path: ADMIN_ENDPOINTS.IAM_AUDIT.buildPath(),
         query,
@@ -165,9 +172,15 @@ export const httpIamPolicies = {
         endpointKey: 'IAM_AUDIT',
         capability: IAM_READ_CAPABILITY,
       },
-      mapIamAuditDecision,
-      limit,
-    ).then((p) => p.data);
+    );
+    const { items, meta } = splitList(raw);
+    const decisions = items.map((it) => mapIamAuditDecision(it));
+    return {
+      decisions,
+      totalCount: num(meta?.totalCount ?? meta?.total_count ?? meta?.count, decisions.length),
+      hasMore: Boolean(meta?.hasMore ?? meta?.has_more ?? false),
+      nextCursor: (meta?.nextCursor ?? meta?.next_cursor ?? null) as string | null,
+    };
   },
 
   async toggleIamPolicy(policyId: string, enabled: boolean): Promise<IamPolicyRule> {

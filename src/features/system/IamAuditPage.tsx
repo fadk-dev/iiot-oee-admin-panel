@@ -90,6 +90,16 @@ export const IamAuditPage: React.FC = () => {
         </div>
       )}
 
+      {iamAudit.exportTruncated && (
+        <div
+          role="status"
+          className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200"
+        >
+          Ekspor dibatasi 1.000 baris pertama yang cocok dengan filter — masih ada keputusan
+          di luar itu di server. Sempitkan filter (mis. rentang tanggal) bila butuh semua baris.
+        </div>
+      )}
+
       <IamAuditFilterBar
         draft={iamAudit.draft}
         onDraftChange={iamAudit.updateDraft}
@@ -97,12 +107,14 @@ export const IamAuditPage: React.FC = () => {
         onReset={iamAudit.resetFilters}
         onDenyOnly={iamAudit.applyDenyOnly}
         isApplying={iamAudit.isApplying}
-        resultCount={iamAudit.filteredCount}
+        resultCount={iamAudit.totalCount}
+        pageMatchCount={iamAudit.filteredCount}
       />
 
       <IamAuditTable
         decisions={iamAudit.pageRows}
         isLoading={iamAudit.isLoading}
+        isFetching={iamAudit.isPaging}
         error={iamAudit.error}
         onRetry={iamAudit.reload}
         pageIndex={iamAudit.pageIndex}

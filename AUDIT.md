@@ -4442,3 +4442,157 @@ Done harfiah tiket) — catatannya hidup di `docs/DOD-FAT-27-checklist.md`.
 FAT-27 tetap In Progress sampai di-unarchive (via UI Linear) dan komentar
 dipasang, atau Fathur menerima dokumen repo sebagai catatannya. Dokumen
 ini belum ikut push #25 (manifest sudah dikunci) — ikut push berikutnya.
+
+## §64 — Verifikasi visual live Push #25 (P33.4 + FAT-307 + FAT-308) — 2026-11-23
+
+Deploy gate: build baru (commit 220b894) live di Vercel. Verifikasi
+10:44–10:47 WIB, ADM-001, read-only, 7/7 butir LOLOS: (1) tab "Perlu
+Tindakan 144" tanpa "+" ("dihitung server dari seluruh data"); (2)
+OFFLINE 20 Nov 2026 16.53 (DEVICE_OFFLINE, MQTT_LWT, STM32-OEE-SIM)
+berlencana "Clear — belum di-ack" + tombol Ack; (3) 0×
+AUTH_TOKEN_REFRESHED di 144 baris (50+50+44), filter hanya tipe
+operasional; (4) Audit Trail kolom arsip NO. | TIMESTAMP | AKSI &
+PELAKU | ENTITAS | PERUBAHAN (LAMA → BARU) | ALASAN | SUMBER, entri
+#779–#760 hal. 1, subtitle arsip append-only, 0× kata "alias"; (5)
+Export CSV terunduh 242 KB; (6) rollup Per Hari kolom TANGGAL kini
+tanggal ISO ("2026-11-20T17:00:00.000Z" dst.), bukan CNC-MILLING-SIM
+— catatan: ISO mentah, belum diformat tanggal lokal (kosmetik); (7)
+modal Daftarkan Stasiun: catatan kuning baru menyebut server menerima
+ID terminal (terbukti ADMIN-CONSOLE-01, FAT-236), klaim lama "HANYA
+STM32-" hilang; modal ditutup Batal. **FAT-294, FAT-307, FAT-308 →
+Done (komentar bukti dipasang).** Caveat: isi baris CSV tidak
+terverifikasi (unduhan browser cloud tidak dapat dibuka dari sisi
+agen); halaman 3 Alarm sempat gagal 2× (NETWORK) lalu termuat saat
+retry. Temuan insidental (di luar tiket, dicek ulang terpisah):
+ringkasan OEE/timeline/Per Jam sempat "Gagal memuat" dan /admin/devices
+sempat berbanner "Format perangkat dari server tidak sesuai skema."
+dengan 0 perangkat — /health backend saat itu 200 ×3, uptime 3307 dtk,
+telemetri mengalir, jadi kemungkinan gangguan jaringan sesaat; hasil
+cek ulang menyusul.
+
+## §65 — FAT-309: getDevices gagal total bila ada baris stasiun (regresi live, pemicu registrasi ADMIN-CONSOLE-01)
+
+Gejala live 2026-11-23 10:44–10:51 WIB (verifikasi Push #25 + cek ulang
+3× percobaan): /admin/devices berbanner "Format perangkat dari server
+tidak sesuai skema." + semua counter 0; /analytics ringkasan OEE +
+timeline + tabel Per Jam "Gagal memuat" — sementara Rollup Per Hari
+tetap termuat sebagian dan dashboard live. Bukan gangguan sesaat dan
+bukan backend down (/health 200 ×3, uptime 3307 dtk, telemetri mengalir).
+
+Akar (terbukti di kode): EdgeDeviceSchema (schemas/dto-assets.ts)
+mewajibkan device_id cocok regex ^STM32-[A-Za-z0-9_-]+$; getDevices()
+(http/devices.ts) = reqAllPages(DEVICES_LIST, mapDevice) — satu baris
+non-STM32 melempar INVALID_RESPONSE untuk SELURUH daftar. Server
+mengirim stasiun sebagai baris devices biasa. Pemicu: stasiun
+ADMIN-CONSOLE-01 terdaftar live 10:12 WIB (FAT-236 AC1 — registrasi uji
+oleh agen ini) = baris terminal pertama di daftar; sebelumnya daftar
+hanya berisi STM32 (audit 09:17 + verifikasi FAT-306 10:07 normal).
+Dampak berantai: useMasterAssetsQuery = Promise.all(getMachines +
+getDevices + getProducts + getOperators) gagal total bila getDevices
+gagal → masterData undefined → Analytics kehilangan data master.
+Cacat LATEN sejak E27: komentar di http/stations.ts + mappers/assets.ts
+sudah memperingatkan "seluruh daftar akan gagal parse bila satu stasiun
+ikut terdaftar" — hanya jalur Stations yang diperbaiki (mapStation
+toleran). Push #25 TIDAK bersalah (tidak menyentuh jalur ini).
+
+Perbaikan (lokal, menunggu push): (1) http/devices.ts — mapEdgeDeviceRow
+baru: baris non-STM32 dilewati (return null), stasiun tetap dilayani
+getStations/mapStation; regex sama dengan EdgeDeviceSchema. (2)
+http/transport.ts — reqList/reqAllPages menerima mapper nullable
+(T | null) dan membuang baris null; pemanggil lama tidak berubah.
+(3) Tes baru http/devices.test.ts (stub server, port segar 3071/3072):
+campuran STM32 + ADMIN-CONSOLE-01 + STATION-LINI-01 → hanya 2 STM32;
+hanya stasiun → []. Verifikasi pusat: tsc 0, tes 604/604, build OK,
+checker 0 FAIL / 35 WARN (426 file). FAT-309 (High) → In Progress.
+
+Port Push #26: `mapEdgeDeviceRow` + `reqList`/`reqAllPages` nullable di-port
+ke struktur remote (`http/devices.ts`, `http/transport/requests.ts`); monolit
+`transport.ts` lama TIDAK ikut push. Verifikasi di worktree port: tsc 25
+error (sama dengan baseline pristine remote — pra-ada, lihat §66), tes 640
+lolos / 15 gagal (gagal identik dengan baseline), 2/2 tes baru FAT-309 lolos,
+build OK, checker 0 FAIL. Klaim "tsc 0, tes 604/604" di atas adalah verifikasi
+checkout lama (struktur pra-E32), bukan struktur remote — dikoreksi di sini.
+
+## §66 — P33.9 (FAT-305): Audit IAM memakai paging server-side (cursor + totalCount)
+
+**Status: SELESAI, push #26, belum verifikasi visual live.**
+Tiket: P33.9 (FAT-305), anak epic E33 (FAT-290 — sudah Done atas keputusan
+Fathur, FAT-305 tetap terbuka terpisah). Backend B33.5 (FAT-303) sudah Done +
+live: `GET /access-control/audit` mendukung `cursor` + `limit`, envelope
+`{data, pagination{limit, hasMore, truncated, nextCursor, totalCount}}`,
+skema 200 terdokumentasi di OpenAPI live 2026-11-23. Panel sebelumnya
+paginasi client-side (ambil `limit=100`, iris 25/halaman di klien) — limitasi
+yang didokumentasikan di P33.6.
+
+### Yang diubah (11 file + 2 port)
+
+1. `src/types/iam.ts` — `IamAuditFilters` + `cursor?: string | null`;
+   tipe baru `IamAuditPage {decisions, totalCount, hasMore, nextCursor}`.
+2. `src/services/api/http/iam/policies.ts` — `getIamAuditDecisions`
+   mengembalikan `IamAuditPage` (PORT, lihat bawah).
+3. `src/services/api/demo/iam/policies.ts` — paritas demo: cursor demo
+   adalah offset berkode `iam-audit:<offset>`; cursor rusak/tanpa prefix =
+   halaman pertama (defensif).
+4. `src/features/system/utils/iamAudit.ts` — `paginateIamAuditDecisions`
+   DIHAPUS; gantinya helper murni tumpukan cursor + `iamAuditPageCount`
+   (informatif) + `formatIamAuditResultLabel` + `IAM_AUDIT_EXPORT_LIMIT = 1000`.
+5. `src/features/system/hooks/useIamAudit.ts` — tulis ulang paging:
+   `limit=25` per halaman; state `pageInfo {totalCount, hasMore,
+   nextCursor}` + `cursorState`; `isPaging`; penjaga respons basi
+   (request-seq); `reload` memuat ulang halaman aktif dengan cursor-nya.
+6. `src/features/system/IamAuditPage.tsx` — `resultCount` kini
+   `totalCount` server; catatan amber bila ekspor terpotong.
+7. `src/features/system/components/IamAuditFilterBar.tsx` — label via
+   `formatIamAuditResultLabel`; bila filter teks aktif, tampil
+   `· N cocok di halaman ini`.
+8. `src/features/system/components/IamAuditTable.tsx` — prop baru
+   `isFetching` (tombol paging dikunci + strip "Menyinkronkan...").
+9. `src/features/system/utils/iamAudit.test.ts` — 11 tes (filter 3, nama
+   file CSV 1, tumpukan cursor 4, pageCount 1, label totalCount 2).
+10. `src/services/api/demo/iam/policies.test.ts` (baru) — 3 tes demo.
+11. `src/services/api/http/transport/requests.ts` — `reqList`/`reqAllPages`
+    nullable (PORT FAT-309, lihat §65).
+12. `docs/DOD-FAT-27-checklist.md` (baru) — checklist DoD §15 per modul.
+
+### Port ke struktur remote (E32) — BUKAN salinan mentah checkout lama
+
+Implementasi P33.9 + FAT-309 dikerjakan di checkout utama (struktur pra-E32,
+HEAD 7095217); remote main sudah struktur pasca-E32 (569 file vs 471 di
+checkout lama; 98 file split hanya ada di remote). Push #26 dikerjakan dari
+worktree baru di origin/main 9e519c1: 9 file P33.9 disalin verbatim (diff vs
+remote hanya perubahan P33.9 — diverifikasi per baris, baris yang dihapus
+adalah kode lama P33.6); 1 fungsi di-port: `getIamAuditDecisions` masuk ke
+`iam/policies.ts` (remote: barrel `http/iam.ts` + split `iam/roles.ts` +
+`iam/policies.ts`; monolit `http/iam.ts` lama 416 baris TIDAK ikut push —
+barrel tetap utuh). File-file struktur lama lainnya (`transport.ts` monolit,
+`mode.ts`, `reconciliation.ts`, dsb.) TIDAK ikut push. Snapshot penuh dari
+checkout lama akan menghapus 98 file remote — dilarang.
+
+### Verifikasi (worktree Push #26, 2026-11-23)
+
+- `npx tsc --noEmit`: 25 error — IDENTIK dengan baseline pristine
+  origin/main (25 error pra-ada: rename P33.4 `SystemAuditExportQuery` /
+  `exportSystemAuditData` di file split `demo/monitoring/audit.ts` + 4 tes
+  `auditLogs` + 2 tes ekspor; remote main memang belum tsc-hijau — bukan
+  akibat push ini, tidak memburuk).
+- Tes: 640 lolos / 15 gagal — 15 gagal IDENTIK dengan baseline pristine;
+  16/16 tes baru lolos (iamAudit 11 + policies demo 3 + FAT-309 2).
+- Build OK (vite build). Checker 0 FAIL / 15 WARN (528 file).
+- Verifikasi visual live BUTUH deploy Vercel: buka `/admin/iam-audit`
+  sebagai ADM-001, cek "Menampilkan N keputusan" = total server (bukan
+  25/100), Berikutnya/Sebelumnya bekerja, "Hanya DENY" + filter tetap
+  bekerja, ekspor CSV mengunduh baris hasil filter; cek /admin/devices
+  tampil + Analytics termuat (FAT-309).
+
+### Keputusan desain + limitasi (dari draf P33.9)
+
+- Paging mundur = tumpukan cursor (endpoint hanya maju via `nextCursor`).
+- Perangkap `totalCount` (camelCase): `pageMeta`/`normalizeListResponse`
+  hanya membaca `count`/`total_count` — `getIamAuditDecisions` membaca
+  `totalCount` eksplisit dari envelope (fallback `total_count`/`count`/
+  jumlah baris).
+- Filter teks Resource/Action kini per halaman (server tidak punya filter
+  itu); label jujur "N cocok di halaman ini".
+- Ekspor CSV: satu panggilan `limit=1000` + filter server; bila masih ada
+  baris di luar itu, `exportTruncated=true` + catatan amber.
+- `pageCount` hanya informatif (`ceil(totalCount/25)`).

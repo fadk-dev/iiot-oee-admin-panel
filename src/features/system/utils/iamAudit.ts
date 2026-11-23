@@ -1,7 +1,10 @@
 import type { IamAuditDecision, IamAuditFilters } from '../../../types/iam';
 
-/** P33.6 (FAT-301): ukuran halaman paginasi client-side Audit IAM. */
+/** P33.9 (FAT-305): ukuran satu halaman server Audit IAM (`limit` ke GET /access-control/audit). */
 export const IAM_AUDIT_PAGE_SIZE = 25;
+
+/** Batas ekspor CSV: satu panggilan `limit=1000` (maksimum OpenAPI) + filter server yang sedang diterapkan. */
+export const IAM_AUDIT_EXPORT_LIMIT = 1000;
 
 export interface IamAuditClientFilters {
   resourceQuery: string;
@@ -29,40 +32,91 @@ export function filterIamAuditByResourceAction(
   );
 }
 
-export interface IamAuditPageSlice {
-  pageRows: IamAuditDecision[];
-  /** Nomor halaman efektif (0-based) setelah clamp ke rentang yang ada. */
+/**
+ * P33.9 (FAT-305): tumpukan cursor paging server-side Audit IAM.
+ *
+ * Endpoint `GET /access-control/audit` (B33.5) hanya maju: tiap halaman
+ * mengembalikan `nextCursor` untuk halaman berikut, TANPA cursor untuk
+ * halaman sebelumnya. Supaya "Sebelumnya" tetap bisa, hook menyimpan
+ * rantai cursor halaman yang sudah dikunjungi:
+ *
+ * - `stack[0]` selalu `null` (cursor halaman pertama);
+ * - `stack[i]` = cursor yang dipakai mengambil halaman ke-`i`;
+ * - `pageIndex` = halaman aktif di dalam rantai.
+ *
+ * Maju memakai `nextCursor` halaman aktif BILA belum pernah dikunjungi
+ * (didorong ke rantai), atau memakai cursor yang sudah tersimpan BILA
+ * halaman itu pernah dikunjungi (kembali-maju tidak mengulang fetch
+ * yang sama dua kali). Mundur hanya menggeser `pageIndex` — hook
+ * mengambil ulang halaman itu dengan cursor tersimpan, jadi data selalu
+ * segar (bukan cache). Karena log audit pada dasarnya append-only,
+ * urutan halaman stabil dalam praktik; bila keputusan baru masuk di
+ * antara dua kunjungan, isi halaman bisa bergeser — itu sifat paging
+ * cursor atas log hidup, bukan bug.
+ *
+ * Rantai direset ke `[null]` setiap kali filter server berubah.
+ */
+export interface IamAuditCursorStack {
+  stack: (string | null)[];
   pageIndex: number;
-  pageCount: number;
-  hasMore: boolean;
-  hasPrev: boolean;
+}
+
+export function initialIamAuditCursorStack(): IamAuditCursorStack {
+  return { stack: [null], pageIndex: 0 };
+}
+
+/** Cursor yang dipakai mengambil halaman aktif. */
+export function cursorForIamAuditPage(state: IamAuditCursorStack): string | null {
+  return state.stack[state.pageIndex] ?? null;
 }
 
 /**
- * Paginasi client-side atas daftar yang sudah dimuat.
- *
- * JUJUR: GET /access-control/audit TIDAK mendukung paging server-side —
- * kontraknya hanya `subject/decision/mode/from/to/limit`, tanpa
- * cursor/offset. Jadi halaman di sini adalah irisan dari daftar yang
- * dimuat (paling banyak `limit` baris, default 100). Bila suatu hari
- * backend menambah param paging, ganti fungsi ini dengan cursor
- * server-side seperti DataTable halaman histori.
+ * Geser ke halaman berikut. Mengembalikan state baru, atau `null` bila
+ * tidak ada halaman berikut (tidak ada `nextCursor` DAN tidak ada cursor
+ * tersimpan untuk halaman berikut).
  */
-export function paginateIamAuditDecisions(
-  decisions: readonly IamAuditDecision[],
-  pageIndex: number,
-  pageSize: number = IAM_AUDIT_PAGE_SIZE,
-): IamAuditPageSlice {
-  const pageCount = Math.max(1, Math.ceil(decisions.length / pageSize));
-  const clamped = Math.min(Math.max(0, pageIndex), pageCount - 1);
-  const start = clamped * pageSize;
+export function advanceIamAuditCursor(
+  state: IamAuditCursorStack,
+  nextCursor: string | null,
+): IamAuditCursorStack | null {
+  const stored = state.stack[state.pageIndex + 1];
+  if (stored !== undefined) return { stack: state.stack, pageIndex: state.pageIndex + 1 };
+  if (nextCursor === null) return null;
   return {
-    pageRows: decisions.slice(start, start + pageSize),
-    pageIndex: clamped,
-    pageCount,
-    hasMore: clamped < pageCount - 1,
-    hasPrev: clamped > 0,
+    stack: [...state.stack.slice(0, state.pageIndex + 1), nextCursor],
+    pageIndex: state.pageIndex + 1,
   };
+}
+
+/** Geser ke halaman sebelumnya; `null` bila sudah di halaman pertama. */
+export function retreatIamAuditCursor(state: IamAuditCursorStack): IamAuditCursorStack | null {
+  if (state.pageIndex <= 0) return null;
+  return { stack: state.stack, pageIndex: state.pageIndex - 1 };
+}
+
+/**
+ * Jumlah halaman informatif dari `totalCount` server (hanya tampilan —
+ * paging cursor TIDAK bisa lompat ke halaman sembarang, jadi angka ini
+ * tidak pernah dipakai untuk navigasi).
+ */
+export function iamAuditPageCount(totalCount: number, pageSize: number = IAM_AUDIT_PAGE_SIZE): number {
+  return Math.max(1, Math.ceil(Math.max(0, totalCount) / pageSize));
+}
+
+/**
+ * Teks "Menampilkan N keputusan": N SELALU total server (`totalCount`),
+ * bukan jumlah baris yang dimuat. Bila filter teks Resource/Action aktif,
+ * tambahkan berapa baris yang cocok DI HALAMAN INI — karena filter teks
+ * hanya menyaring halaman yang dimuat, bukan seluruh dataset server.
+ */
+export function formatIamAuditResultLabel(
+  totalCount: number,
+  pageMatchCount?: number | null,
+): string {
+  if (pageMatchCount === null || pageMatchCount === undefined) {
+    return `Menampilkan ${totalCount} keputusan`;
+  }
+  return `Menampilkan ${totalCount} keputusan · ${pageMatchCount} cocok di halaman ini`;
 }
 
 /** Nama file ekspor CSV: audit-iam-YYYY-MM-DD.csv (tanggal lokal). */

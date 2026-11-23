@@ -13,7 +13,7 @@
 import { store } from '../store';
 import { checkAbort, assertCapability } from '../helpers';
 import { ADMIN_ENDPOINTS } from '../../endpoints';
-import { IamPolicyRule, IamEffectivePermissions, IamAuditDecision, IamAuditFilters } from '../../../../types/iam';
+import { IamPolicyRule, IamEffectivePermissions, IamAuditFilters, IamAuditPage } from '../../../../types/iam';
 import { ApiError } from '../../../../types/auth';
 import { isAdminRoleName, isReservedPermission, policyMatchesSubject, policyTargetsAdmin, validateAbacCondition } from '../../../../utils/capabilities';
 import { IamPolicyRuleSchema } from '../../schemas';
@@ -24,6 +24,18 @@ import { IamPolicyRuleSchema } from '../../schemas';
 // yang ditulis ke server tetap di-omit di lapisan HTTP (http/iam.ts).
 function toSchemaPolicy(p: IamPolicyRule): IamPolicyRule {
   return IamPolicyRuleSchema.parse({ ...p, abacCondition: p.abacCondition ?? undefined });
+}
+
+const DEMO_IAM_AUDIT_CURSOR_PREFIX = 'iam-audit:';
+
+function encodeDemoIamAuditCursor(offset: number): string {
+  return `${DEMO_IAM_AUDIT_CURSOR_PREFIX}${offset}`;
+}
+
+function decodeDemoIamAuditCursor(cursor: string | null | undefined): number {
+  if (!cursor || !cursor.startsWith(DEMO_IAM_AUDIT_CURSOR_PREFIX)) return 0;
+  const n = Number(cursor.slice(DEMO_IAM_AUDIT_CURSOR_PREFIX.length));
+  return Number.isInteger(n) && n >= 0 ? n : 0;
 }
 
 export const demoIamPolicies = {
@@ -230,7 +242,14 @@ export const demoIamPolicies = {
   /**
    * §3.4: filter `subject/decision/mode/from/to` (server-side) + `limit`.
    */
-  async getIamAuditDecisions(filters: IamAuditFilters = {}, signal?: AbortSignal): Promise<IamAuditDecision[]> {
+  /**
+   * P33.9 (FAT-305): paging server-side, paritas dengan HTTP. Cursor demo
+   * adalah offset halaman yang dikodekan (`iam-audit:<offset>`) — buram
+   * bagi pemanggil, dan TIDAK sama formatnya dengan cursor server asli;
+   * hanya berlaku di dalam mode demo. Cursor rusak/tanpa prefix = halaman
+   * pertama (defensif, bukan error).
+   */
+  async getIamAuditDecisions(filters: IamAuditFilters = {}, signal?: AbortSignal): Promise<IamAuditPage> {
     checkAbort(signal);
     assertCapability('access_control.read', ['ADMIN']);
     store.recordEndpoint('IAM_AUDIT', ADMIN_ENDPOINTS.IAM_AUDIT.buildPath());
@@ -244,6 +263,16 @@ export const demoIamPolicies = {
     if (filters.mode) rows = rows.filter((d) => d.mode === filters.mode);
     if (filters.from) rows = rows.filter((d) => d.timestamp >= filters.from!);
     if (filters.to) rows = rows.filter((d) => d.timestamp <= filters.to!);
-    return rows.slice(0, Math.min(1000, limit)).map((d) => ({ ...d }));
+    const totalCount = rows.length;
+    const offset = decodeDemoIamAuditCursor(filters.cursor);
+    const page = rows.slice(offset, offset + Math.min(1000, limit));
+    const nextOffset = offset + page.length;
+    const hasMore = nextOffset < totalCount;
+    return {
+      decisions: page.map((d) => ({ ...d })),
+      totalCount,
+      hasMore,
+      nextCursor: hasMore ? encodeDemoIamAuditCursor(nextOffset) : null,
+    };
   }
 };

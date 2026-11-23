@@ -74,14 +74,31 @@ export interface IamAuditDecision {
   timestamp: string;
 }
 
-/** Filter GET /access-control/audit (§3.4) — dikirim sebagai query param. */
+/** Filter GET /access-control/audit (§3.4) — dikirim sebagai query param.
+ * P33.9 (FAT-305): `cursor` + `limit` untuk paging server-side (B33.5,
+ * OpenAPI live 2026-11-23: envelope `{data, pagination{limit, hasMore,
+ * truncated, nextCursor, totalCount}}`). */
 export interface IamAuditFilters {
   subject?: string;
   decision?: 'ALLOW' | 'DENY';
   mode?: 'shadow' | 'enforce';
   from?: string;
   to?: string;
+  /** Cursor buram dari `IamAuditPage.nextCursor`; null/undefined = halaman pertama. */
+  cursor?: string | null;
   limit?: number;
+}
+
+/**
+ * P33.9 (FAT-305): satu halaman keputusan audit IAM dari server.
+ * `totalCount` = total baris yang cocok dengan filter server (bukan hanya
+ * halaman ini) — dipakai teks "Menampilkan N keputusan".
+ */
+export interface IamAuditPage {
+  decisions: IamAuditDecision[];
+  totalCount: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 /**
