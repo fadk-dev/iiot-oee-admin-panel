@@ -4216,3 +4216,71 @@ transien: navigasi langsung ke /admin/alarms setelah login pertama
 sempat menampilkan "Memulihkan sesi…" lalu kembali ke /login; login
 kedua + navigasi lewat sidebar berjalan normal — bukan cacat halaman,
 dicatat sebagai observasi. FAT-304 → **Done**.
+
+---
+
+## §59 — FAT-306: Analytics/Telemetry — mesin default hardcode CNC-MILLING-01 (2026-11-23)
+
+**Temuan (audit end-to-end 2026-11-23, `~/workspace/audit-end-to-end-2026-11-23.md` §5):**
+halaman Analytics (`/analytics`) gagal memuat ringkasan OEE, timeline,
+dan tabel Per Jam ("Gagal memuat ringkasan OEE", "Gagal memuat timeline",
+"Gagal memuat data"); rollup 0/0/0; Telemetry 0 semua. Panel mengirim
+`machine_id=CNC-MILLING-01` (hardcode) padahal mesin live adalah
+`CNC-MILLING-SIM`.
+
+**Diagnostik live (ADM-001, 23 Nov 09:32–09:35 WIB, read-only):**
+- Diagnostik #1 (pilih CNC-MILLING-SIM lewat dropdown + Refresh) tidak
+  meyakinkan: pemilih menampilkan CNC-MILLING-SIM sebagai satu-satunya
+  opsi, tetapi judul halaman tetap menyebut CNC-MILLING-01 — filter
+  kemungkinan tidak pernah berubah (memilih opsi yang sudah tampil tidak
+  memicu perubahan; `value` select tetap CNC-MILLING-01 sementara opsi
+  yang dirender hanya SIM). Data CNC-MILLING-SIM terbukti ADA di backend
+  (tab Rollup Telemetry: CNC-MILLING-SIM OEE 0,02%, 29.805 sampel).
+- Diagnostik #2 (URL langsung `/analytics?machine_id=CNC-MILLING-SIM`,
+  param dibaca `historyParams`): **TERBUKTI — mesin adalah penyebabnya.**
+  Ketiga error hilang: ringkasan termuat (OEE 1,7%, Availability 1,7%,
+  Performance 91,8%, Quality 91,8%, 24.590 good / 0 defect, 7 hari),
+  timeline termuat (bucket 5m, mostly UNCONFIGURED, blok UNPLANNED_DOWNTIME
+  ~22 Nov, segmen 23:44–23:49 READY, downtime ID:3 81 jam 49 mnt),
+  tabel Per Jam termuat (08:00 OEE 17,89%, 07:00 33,31%, 06:00 42,76%),
+  rollup berisi nilai nyata. Tidak ada lagi "CNC-MILLING-01" di halaman.
+  Judul memakai nama tampilan mesin ("Milling 5-Axis CNC (Simulation)")
+  bila mesinnya ada di master data, ID mentah bila tidak — itu yang
+  menjelaskan selisih label pada diagnostik #1.
+
+**Perbaikan (panel saja):**
+- BARU `resolveDefaultMachineId(machines, devices)` di
+  `src/features/shared/utils/defaultDevice.ts` — mesin terikat device
+  ONLINE pertama, lalu mesin pertama, lalu `undefined`; fungsi murni.
+  Pola cermin FAT-170 untuk device.
+- `useOeeAnalyticsBase.ts`: default `machineId: 'CNC-MILLING-01'` dihapus
+  dari `useHistoryFilters`; `selectedMachine = filters.machineId ||
+  resolveDefaultMachineId(machines, devices) || ''`. URL `?machine_id=…`
+  tetap menang. Demo tidak berubah (seed: CNC-MILLING-01 terikat
+  STM32-OEE-01 online urutan pertama → default demo tetap).
+- Telemetry (butir c tiket): tidak ada perubahan — halaman Telemetry
+  sudah memakai default device dari daftar live (FAT-170,
+  `resolveDefaultDeviceId`) dan tidak punya default mesin hardcode;
+  label mesin di Telemetry berasal dari baris rollup API, bukan default
+  panel. Terverifikasi: rollup Telemetry menampilkan CNC-MILLING-SIM
+  dengan data nyata.
+- Tes BARU `src/features/shared/utils/defaultDevice.test.ts` (1 tes,
+  5 asersi: online-bound, fallback pertama, kosong/null, seed demo,
+  offline-bound tidak didahulukan).
+
+**Verifikasi pusat:** tsc 0, tes 581/581 (580 + 1 baru), build OK,
+checker 0 FAIL / 35 WARN, 423 file. Verifikasi visual live menyusul
+setelah push (deploy Vercel) — halaman Analytics dengan filter default
+harus menampilkan ringkasan/timeline/Per Jam untuk CNC-MILLING-SIM tanpa
+error. FAT-306 tetap In Progress sampai verifikasi live.
+
+**Observasi sampingan (di luar lingkup FAT-306, dicatat untuk tindak
+lanjut — angka-angka ini dari backend, bukan mapper panel):**
+- Ringkasan Quality 91,8% padahal 0 defect (24.590 good / 0 defect) —
+  seharusnya 100%; Performance juga 91,8% (angka yang sama).
+- Baris Per Jam: Performance 6.626,98% / 9.515,87% / 8.222,22% (parts
+  4.175–5.995 vs target 63) dan OP/RUN 3.147 jam dalam satu bucket jam —
+  agregasi backend yang tampak tidak wajar.
+- Kolom TANGGAL pada rollup Per Hari menampilkan "CNC-MILLING-SIM"
+  (bukan tanggal) pada tampilan yang diekstrak — perlu dicek saat
+  verifikasi live, apakah cacat tampil atau artefak ekstraksi.

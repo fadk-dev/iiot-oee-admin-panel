@@ -8,7 +8,7 @@ import {
 } from '../../shared/useHistoricalQueries';
 import { buildOeeAnalyticsQueryKeys, OeeAnalyticsQueryKeys, RollupScope, TimelineBucket } from './oeeQueryKeys';
 import { DEFAULT_ROLLUP_GROUP_BY, DEFAULT_TIMELINE_BUCKET } from '../telemetryDefaults';
-import { resolveMachineDeviceId } from '../../shared/defaultDevice';
+import { resolveMachineDeviceId, resolveDefaultMachineId } from '../../shared/defaultDevice';
 
 export type { TimelineBucket, RollupScope };
 
@@ -36,12 +36,10 @@ export const useOeeAnalyticsBase = () => {
   const canReadQuality = useCapability('quality.read');
 
   const { filters, updateFilters } = useHistoryFilters({
-    machineId: 'CNC-MILLING-01',
     groupBy: DEFAULT_ROLLUP_GROUP_BY,
     limit: 20,
   });
 
-  const selectedMachine = filters.machineId || 'CNC-MILLING-01';
   const rollupGroupBy: TelemetryRollupGroupBy = filters.groupBy ?? DEFAULT_ROLLUP_GROUP_BY;
   const [timelineBucket, setTimelineBucket] = useState<TimelineBucket>(DEFAULT_TIMELINE_BUCKET);
   const [selectedSegmentIdx, setSelectedSegmentIdx] = useState<number | null>(null);
@@ -52,6 +50,17 @@ export const useOeeAnalyticsBase = () => {
 
   const { data: masterData } = useMasterAssetsQuery(canReadOee.canInteract);
   const machines = masterData?.machines ?? [];
+
+  // FAT-306: default mesin dari daftar live — BUKAN hardcode
+  // 'CNC-MILLING-01' (mesin itu tidak ada di live; live = CNC-MILLING-SIM).
+  // Pola yang sama dengan FAT-170 untuk device (TelemetryHistoryPage):
+  // mesin terikat device online pertama, lalu mesin pertama; daftar kosong
+  // → '' (tanpa mesin terpilih — query berjalan tanpa machine_id, bukan
+  // mesin karangan). URL ?machine_id=… tetap menang (historyParams).
+  // Demo tidak berubah: seed demo menempatkan CNC-MILLING-01 terikat
+  // STM32-OEE-01 (online, urutan pertama).
+  const selectedMachine =
+    filters.machineId || resolveDefaultMachineId(machines, masterData?.devices ?? []) || '';
 
   // E12 T12.1 (X-1 / FAT-54): daftar shift untuk pemilih shift + kode
   // shift yang dikirim ke shift-summary/timeline (API doc §I `?date=&shift=`).

@@ -45,3 +45,33 @@ export function resolveMachineDeviceId(
     resolveDefaultDeviceId(devices)
   );
 }
+
+/**
+ * FAT-306: default machine diturunkan dari daftar live — BUKAN hardcode
+ * 'CNC-MILLING-01' (mesin itu tidak ada di live; live = CNC-MILLING-SIM).
+ *
+ * Aturan (cermin FAT-170 untuk device):
+ * 1. mesin yang terikat device ONLINE pertama (urutan server dipertahankan);
+ * 2. bila tidak ada, mesin pertama;
+ * 3. bila list kosong, `undefined` — pemanggil menampilkan empty state
+ *    yang jelas, bukan default karangan.
+ * Fungsi murni (tanpa fetch) supaya bisa diuji tanpa stub; pemanggil
+ * (`useOeeAnalyticsBase`) memberi daftar dari `useMasterAssetsQuery`
+ * yang sudah dimuat halaman itu.
+ * Demo mode tetap jalan: seed demo menempatkan CNC-MILLING-01 terikat
+ * STM32-OEE-01 (online, urutan pertama), jadi default demo tidak berubah.
+ */
+export function resolveDefaultMachineId(
+  machines: readonly Machine[] | undefined | null,
+  devices?: readonly DefaultDeviceCandidate[] | null
+): string | undefined {
+  if (!machines || machines.length === 0) return undefined;
+  const onlineDeviceIds = new Set(
+    (devices ?? []).filter((d) => d.online).map((d) => d.device_id)
+  );
+  const boundToOnline = machines.find((m) => {
+    const deviceId = m.bound_device_id ?? m.boundDevice?.device_id ?? null;
+    return deviceId !== null && onlineDeviceIds.has(deviceId);
+  });
+  return boundToOnline?.machine_id ?? machines[0]?.machine_id;
+}
