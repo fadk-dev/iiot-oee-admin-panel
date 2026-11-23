@@ -11,10 +11,12 @@ import {
  * FAT-300 (P33.5, E33 tahap A analisis halaman Opsi 3 §3): dua tampilan
  * Alarm & Event — "Perlu Tindakan" (default) dan "Riwayat".
  *
- * Jumlah di tiap tab dihitung dari baris halaman yang sedang dimuat
- * (lihat eventView.ts): angka pasti hanya bila semua hasil sudah termuat,
- * selain itu batas bawah dengan akhiran "+" dan penjelasan di `title`.
- * Bila jumlah belum dimuat (query masih berjalan), tampilkan label saja.
+ * Jumlah di tiap tab dihitung dari `pagination.totalCount`/`counts`
+ * server bila ada (P33.4 — pasti, tanpa "+"), selain itu dari baris
+ * halaman yang sedang dimuat (lihat eventView.ts): angka pasti hanya bila
+ * semua hasil sudah termuat, selain itu batas bawah dengan akhiran "+"
+ * dan penjelasan di `title`. Bila jumlah belum dimuat (query masih
+ * berjalan), tampilkan label saja.
  */
 export interface OperationalEventViewTabsProps {
   view: OperationalEventView;
@@ -43,7 +45,9 @@ export const OperationalEventViewTabs: React.FC<OperationalEventViewTabsProps> =
       count: actionCount,
       countTitle: actionCount
         ? actionCount.exact
-          ? `Total ${actionCount.count} event belum di-ack — semua hasil sudah termuat`
+          ? actionCount.server
+            ? `Total ${actionCount.count} event belum di-ack — dihitung server dari seluruh data`
+            : `Total ${actionCount.count} event belum di-ack — semua hasil sudah termuat`
           : `Minimal ${actionCount.count} event belum di-ack — masih ada halaman berikut`
         : '',
     },
@@ -54,7 +58,9 @@ export const OperationalEventViewTabs: React.FC<OperationalEventViewTabsProps> =
       count: historyCount,
       countTitle: historyCount
         ? historyCount.exact
-          ? `Total ${historyCount.count} event — semua hasil sudah termuat`
+          ? historyCount.server
+            ? `Total ${historyCount.count} event — dihitung server dari seluruh data`
+            : `Total ${historyCount.count} event — semua hasil sudah termuat`
           : `Minimal ${historyCount.count} event — masih ada halaman berikut`
         : '',
     },

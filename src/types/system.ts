@@ -1,5 +1,3 @@
-import type { OperationalEvent } from './monitoring';
-
 /**
  * E20 P20.4 (FAT-156): `/health` mengembalikan bentuk lean (API doc §A) —
  * tanpa label/version/environment/latency per komponen. Nilai yang tidak
@@ -96,14 +94,49 @@ export interface HealthDetail {
 }
 
 /**
- * E20 P20.4 (FAT-156): `/system/audit` adalah alias audit trail global yang
- * mengembalikan `OperationalEventItem[]` (API doc §I) — bentuknya SAMA
- * dengan OperationalEvent FR-034-01. Field karangan lama (`operator_id`,
- * `operator_name`, `action`, `resource_type`, `resource_id`, `client_ip`,
- * `access_mode`) dihapus; yang benar-benar ada adalah `acknowledgedBy`,
- * `ackNote`, `triggerSource`, `woId`, dst.
+ * P33.4 (FAT-294, E33 Opsi 3): record arsip audit append-only dari
+ * `GET /api/v1/system/audit-trail` (B33.2, §2
+ * docs/BACKEND_REQUIREMENTS_E33_PAGES.md) — store TERPISAH dari
+ * `operational_events`. Satu baris = satu mutasi/aksi yang sudah terjadi;
+ * tidak ada route update/delete ke store ini.
+ *
+ * - `seq` — nomor urut monoton tanpa celah (penanda integritas arsip).
+ * - `action` — `eventType` keluarga `system` (§1).
+ * - `old_value`/`new_value` — JSON bebas, WAJIB ada (null eksplisit, bukan
+ *   field hilang): `old_value: null` = pembuatan baru, `new_value: null` =
+ *   penghapusan. Nilai mentah dari server (UNTRUSTED untuk dirender —
+ *   tampilkan sebagai JSON, jangan jadikan key/lookup).
+ * - `source` — dari mana aksi dicatat (`panel`/`hmi`/`api`/`system`).
+ * - `prev_hash`/`hash` — rantai integritas; null eksplisit bila backend
+ *   belum mengimplementasikannya.
+ *
+ * Alias lama `AuditLogItem = OperationalEvent` (alias `/system/audit`,
+ * E20 P20.4) DIHAPUS — `/system/audit` bukan lagi sumber halaman Audit
+ * Trail; tidak ada fallback ke alias itu (satu alur kanonik).
  */
-export type AuditLogItem = OperationalEvent;
+export type AuditTrailSource = 'panel' | 'hmi' | 'api' | 'system';
+
+export interface AuditTrailRecord {
+  id: string;
+  seq: number;
+  recorded_at: string;
+  actor: string;
+  actor_role: string | null;
+  action: string;
+  category: 'system' | 'operational';
+  entity_type: string | null;
+  entity_id: string | null;
+  entity_label: string | null;
+  old_value: unknown;
+  new_value: unknown;
+  reason: string | null;
+  source: AuditTrailSource;
+  prev_hash: string | null;
+  hash: string | null;
+}
+
+/** Nama lama halaman Audit Trail — kini record arsip, bukan event operasional. */
+export type AuditLogItem = AuditTrailRecord;
 
 /**
  * E20 P20.5 (FAT-157): `GET /api/v1/system/access-mode` (pembaruan api_docs

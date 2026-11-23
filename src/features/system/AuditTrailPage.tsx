@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy';
 import { Download, ExternalLink, History, RefreshCw, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { AuditLogItem } from '../../types/system';
+import { AuditTrailRecord } from '../../types/system';
 import { eventTypeOptionsForCategory } from '../monitoring/eventCategory';
 import { useCapability } from '../../context/AuthContext';
 import { apiClient } from '../../services/api/client';
@@ -12,7 +12,19 @@ import { DataTable } from '../../components/industrial/DataTable';
 import { formatIsoWithOffset, triggerBrowserDownload, withExportAbortTimeout } from '../../utils/historicalExport';
 import { formatDateTime } from '../../utils/formatDate';
 import { useHistoryFilters } from '../shared/historyFilters';
-import { useMasterAssetsQuery, useSystemAuditQuery } from '../shared/useHistoricalQueries';
+import { useMasterAssetsQuery, useSystemAuditTrailQuery } from '../shared/useHistoricalQueries';
+
+/** Nilai JSON audit (old/new) sebagai teks ringkas — null eksplisit = '—'. */
+function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'string') return value;
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+  } catch {
+    return '—';
+  }
+}
 
 export const AuditTrailPage: React.FC = () => {
   const canReadAudit = useCapability('access_control.read');
@@ -27,7 +39,9 @@ export const AuditTrailPage: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const auditQuery = useSystemAuditQuery(filters, activeCursor, canReadAudit.canInteract && isValid);
+  // P33.4 (FAT-294, B33.2): arsip audit append-only dari
+  // `GET /system/audit-trail` — store TERPISAH dari feed operasional.
+  const auditQuery = useSystemAuditTrailQuery(filters, activeCursor, canReadAudit.canInteract && isValid);
 
   const logs = auditQuery.data?.data ?? [];
   const pagination = auditQuery.data?.pagination;
@@ -53,20 +67,23 @@ export const AuditTrailPage: React.FC = () => {
     }
   };
 
-  // E20 P20.4 (FAT-156, O9): ekspor system-audit — filter sama dengan daftar,
-  // guard `access_control.read` (D-13), format csv default.
+  // P33.4 (FAT-294, B33.2): ekspor arsip audit — `GET
+  // /system/audit-trail/export`, guard `access_control.read`, format csv
+  // default. Filter Event Type halaman dipetakan ke param `action`;
+  // filter Mesin TIDAK diteruskan (endpoint ekspor live tidak
+  // mendaftarkan `machine_id` — ketidaksesuaian kontrak, dicatat di sini
+  // supaya tidak diam-diam dianggap tersaring).
   const handleExport = async () => {
     if (isExporting) return;
     setIsExporting(true);
     setExportError(null);
     try {
       const result = await withExportAbortTimeout(undefined, (signal) =>
-        apiClient.exportSystemAuditData(
+        apiClient.exportSystemAuditTrailData(
           {
             from: filters.from,
             to: filters.to,
-            event_type: eventTypeFilter === 'ALL' ? undefined : eventTypeFilter,
-            machine_id: machineFilter === 'ALL' ? undefined : machineFilter,
+            action: eventTypeFilter === 'ALL' ? undefined : eventTypeFilter,
             format: 'csv',
           },
           signal
@@ -80,8 +97,17 @@ export const AuditTrailPage: React.FC = () => {
     }
   };
 
-  const columns = useMemo<ColumnDef<AuditLogItem, unknown>[]>(
+  const columns = useMemo<ColumnDef<AuditTrailRecord, unknown>[]>(
     () => [
+      {
+        id: 'seq',
+        header: 'No.',
+        cell: ({ row }) => (
+          <span className="font-tabular text-xs text-slate-500 whitespace-nowrap">
+            #{row.original.seq}
+          </span>
+        ),
+      },
       {
         id: 'timestamp',
         header: 'Timestamp',
@@ -92,44 +118,70 @@ export const AuditTrailPage: React.FC = () => {
         ),
       },
       {
-        id: 'event',
-        header: 'Event & Perangkat',
+        id: 'action',
+        header: 'Aksi & Pelaku',
         cell: ({ row }) => {
           const item = row.original;
           return (
             <div className="text-xs space-y-1">
               <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-sky-700 dark:text-sky-300">
                 <History className="w-3.5 h-3.5 shrink-0" />
-                <span>{item.event_type}</span>
+                <span className="break-words">{item.action || '—'}</span>
               </div>
               <div className="text-[11px] text-slate-500">
-                {item.machine_name ?? '[mesin dihapus]'}
-                <span className="font-tabular text-slate-400"> · {item.device_id ?? '[dihapus]'}</span>
+                {item.actor}
+                {item.actor_role ? <span className="text-slate-400"> · {item.actor_role}</span> : null}
               </div>
             </div>
           );
         },
       },
       {
-        id: 'trigger',
-        header: 'Trigger & WO',
+        id: 'entity',
+        header: 'Entitas',
         cell: ({ row }) => {
           const item = row.original;
           return (
             <div className="text-[11px] text-slate-500 space-y-0.5">
-              <div className="font-tabular">{item.trigger_source ?? '—'}</div>
-              <div className="font-tabular">{item.wo_id ?? '—'}</div>
+              <div className="font-tabular">{item.entity_label ?? item.entity_id ?? '—'}</div>
+              <div className="font-tabular">{item.entity_type ?? '—'}</div>
             </div>
           );
         },
       },
       {
-        id: 'details',
-        header: 'Detail',
+        id: 'change',
+        header: 'Perubahan (lama → baru)',
+        cell: ({ row }) => {
+          const item = row.original;
+          return (
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 max-w-md break-words">
+              <div>
+                <span className="text-slate-400">Lama: </span>
+                {formatAuditValue(item.old_value)}
+              </div>
+              <div>
+                <span className="text-slate-400">Baru: </span>
+                {formatAuditValue(item.new_value)}
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'reason',
+        header: 'Alasan',
         cell: ({ row }) => (
-          <span className="text-xs text-slate-700 dark:text-slate-300 block max-w-md">
-            {row.original.description}
+          <span className="text-xs text-slate-700 dark:text-slate-300 block max-w-xs break-words">
+            {row.original.reason ?? '—'}
           </span>
+        ),
+      },
+      {
+        id: 'source',
+        header: 'Sumber',
+        cell: ({ row }) => (
+          <span className="text-xs font-tabular text-slate-500">{row.original.source}</span>
         ),
       },
     ],
@@ -158,13 +210,17 @@ export const AuditTrailPage: React.FC = () => {
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
             Riwayat Audit Aktivitas Sistem
           </h1>
-          {/* E33 P33.1 (FAT-291): subjudul jujur — /system/audit adalah alias
-              feed operasional; kolom Acknowledgment dihapus (ack tercatat
-              sebagai entri OPERATIONAL_EVENT_ACKNOWLEDGED di feed yang sama). */}
+          {/* P33.4 (FAT-294, B33.2): arsip append-only dari
+              `GET /system/audit-trail` — store TERPISAH dari feed
+              operasional (E33 Opsi 3). Baris tidak bisa diubah; setiap
+              mutasi tercatat dengan pelaku, entitas, perubahan old→new,
+              dan alasan. Catatan "alias" lama (P33.1) DIHAPUS — halaman ini
+              bukan lagi alias feed operasional. */}
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            System Audit — alias feed operasional (ADMIN + LAN). Isi halaman ini sama dengan
-            Alarm &amp; Event; hanya gerbang (ADMIN + LAN) dan filter machine_id yang berbeda.
-            Audit trail terpisah sedang dibangun (E33).
+            Arsip audit append-only (ADMIN + LAN). Setiap mutasi sistem dan aksi manusia tercatat
+            dengan nomor urut, pelaku, entitas, perubahan lama → baru, dan alasan — baris arsip
+            tidak bisa diubah.
+            {pagination?.retention_days ? ` Retensi arsip: ${pagination.retention_days} hari.` : ''}
           </p>
         </div>
 
@@ -278,9 +334,9 @@ export const AuditTrailPage: React.FC = () => {
               updateFilters({ eventType: e.target.value === 'ALL' ? undefined : e.target.value });
             }}
           // FAT-304 (P33.8): dropdown Event Type halaman Audit Trail hanya
-          // menawarkan keluarga SISTEM (18 nilai) — tipe operasional ada di
-          // halaman Alarm & Event. Daftarnya sama dengan tabel §1
-          // docs/BACKEND_REQUIREMENTS_E33_PAGES.md.
+          // menawarkan keluarga SISTEM (18 nilai) — dipakai sebagai filter
+          // `action` ke GET /system/audit-trail (P33.4). Daftarnya sama
+          // dengan tabel §1 docs/BACKEND_REQUIREMENTS_E33_PAGES.md.
           options={[{ value: 'ALL', label: 'Semua Event Type' }, ...eventTypeOptionsForCategory('system').map((t) => ({ value: t, label: t }))]}
         />
         <Select

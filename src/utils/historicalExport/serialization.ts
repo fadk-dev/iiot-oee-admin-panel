@@ -1,6 +1,7 @@
 import { DowntimeEvent, OperationalEvent } from '../../types/monitoring';
 import { HourlyOeePoint, TelemetryHistoryRecord, TelemetryRollupItem } from '../../types/analytics';
 import { ExportFormat, ExportMetadata } from '../../types/historical';
+import type { AuditTrailRecord } from '../../types/system';
 import type { IamAuditDecision } from '../../types/iam';
 import { mapDowntimeToSixBigLoss } from './sixBigLoss';
 
@@ -201,11 +202,31 @@ export function formatOperationalEventExportRows(events: OperationalEvent[]): Re
 }
 
 /**
- * E20 P20.4 (FAT-156, O9): ekspor system-audit memakai baris yang sama —
- * `/system/audit` mengembalikan `OperationalEventItem[]` (API doc §I).
+ * P33.4 (FAT-294, B33.2): baris ekspor arsip audit = kolom record
+ * `AuditTrailRecord` (§2 docs/BACKEND_REQUIREMENTS_E33_PAGES.md) —
+ * `old_value`/`new_value` diserialkan sebagai JSON (string) supaya satu
+ * sel CSV memuat satu nilai JSON utuh; null eksplisit → string kosong.
+ * Menggantikan `formatSystemAuditExportRows` (alias `/system/audit`).
  */
-export function formatSystemAuditExportRows(events: OperationalEvent[]): Record<string, unknown>[] {
-  return formatOperationalEventExportRows(events);
+export function formatAuditTrailExportRows(records: AuditTrailRecord[]): Record<string, unknown>[] {
+  return records.map((r) => ({
+    id: r.id,
+    seq: r.seq,
+    recorded_at: r.recorded_at,
+    actor: r.actor,
+    actor_role: r.actor_role ?? '',
+    action: r.action,
+    category: r.category,
+    entity_type: r.entity_type ?? '',
+    entity_id: r.entity_id ?? '',
+    entity_label: r.entity_label ?? '',
+    old_value: r.old_value === null || r.old_value === undefined ? '' : JSON.stringify(r.old_value),
+    new_value: r.new_value === null || r.new_value === undefined ? '' : JSON.stringify(r.new_value),
+    reason: r.reason ?? '',
+    source: r.source,
+    prev_hash: r.prev_hash ?? '',
+    hash: r.hash ?? '',
+  }));
 }
 
 /**

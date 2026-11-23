@@ -4,7 +4,7 @@ import http from 'node:http';
 import { httpApiClient } from './httpClient';
 
 
-test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export system-audit (stub, port 3007)', async () => {
+test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export audit-trail P33.4 (stub, port 3007)', async () => {
   // Port 3007: 3001–3006 sudah dipakai stub lain — undici keep-alive rusak
   // bila port dipakai ulang; VITE_API_URL di-set/restore di try/finally.
   const prevApiUrl = process.env.VITE_API_URL;
@@ -88,6 +88,9 @@ test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export sy
               machineName: 'Press Line 1',
               woId: 'WO-2026-001',
               eventType: 'MASTER_DATA_MUTATION',
+              category: 'system',
+              condition: 'NORMAL',
+              alarmState: 'active-unack',
               triggerSource: 'ADMIN_PANEL',
               eventCode: 0,
               snapshotTotalCount: null,
@@ -107,6 +110,9 @@ test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export sy
               machineName: null,
               woId: null,
               eventType: 'DEVICE_OFFLINE',
+              category: 'operational',
+              condition: 'CLEAR',
+              alarmState: 'acked',
               triggerSource: 'DEVICE',
               eventCode: null,
               snapshotTotalCount: null,
@@ -123,43 +129,43 @@ test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export sy
         });
         return;
       }
-      if (req.method === 'GET' && url.pathname === '/api/v1/system/audit') {
+      // P33.4 (FAT-294, B33.2): arsip audit — record BUKAN OperationalEvent.
+      if (req.method === 'GET' && url.pathname === '/api/v1/system/audit-trail') {
         json(200, {
           data: [
             {
-              id: 44,
+              id: 'aud-20261119-000044',
+              seq: 44,
               recordedAt: '2026-11-19T02:10:00.000Z',
-              deviceId: 'STM32-OEE-01',
-              machineId: 'CNC-MILLING-01',
-              machineName: 'CNC Milling Center Alpha',
-              woId: null,
-              eventType: 'WORK_ORDER_CANCELLED',
-              triggerSource: 'ADMIN_PANEL',
-              eventCode: null,
-              snapshotTotalCount: null,
-              snapshotRunSec: null,
-              description: 'Cancelled WO',
-              acknowledged: true,
-              acknowledgedAt: '2026-11-19T02:11:00.000Z',
-              acknowledgedBy: 'ADM-001',
-              ackNote: null,
-              createdAt: '2026-11-19T02:10:01.000Z',
+              actor: 'ADM-001',
+              actorRole: 'ADMIN',
+              action: 'WORK_ORDER_CANCELLED',
+              category: 'system',
+              entityType: 'work-order',
+              entityId: 'WO-2026-001',
+              entityLabel: 'Work Order WO-2026-001',
+              oldValue: { status: 'ACTIVE' },
+              newValue: { status: 'CANCELLED' },
+              reason: 'Cancelled WO',
+              source: 'panel',
+              prevHash: null,
+              hash: null,
             },
           ],
-          meta: { limit: 50, hasMore: false, nextCursor: null, count: 1 },
+          meta: { limit: 50, hasMore: false, nextCursor: null, count: 1, totalCount: 1, retentionDays: 90 },
         });
         return;
       }
-      if (req.method === 'GET' && url.pathname === '/api/v1/system/audit/export') {
+      if (req.method === 'GET' && url.pathname === '/api/v1/system/audit-trail/export') {
         res.writeHead(200, {
           'Content-Type': 'text/csv',
           Connection: 'close',
-          'Content-Disposition': 'attachment; filename="system_audit_2026-11-19.csv"',
-          'X-Export-Source': 'system_audit',
+          'Content-Disposition': 'attachment; filename="system_audit_trail_2026-11-19.csv"',
+          'X-Export-Source': 'system_audit_trail',
           'X-Export-Generated-At': '2026-11-19T03:00:00.000Z',
           'X-Export-Time-Window': '2026-11-01T00:00:00Z..2026-11-12T00:00:00Z',
         });
-        res.end('id,recorded_at,event_type\n44,2026-11-19T02:10:00.000Z,WORK_ORDER_CANCELLED\n');
+        res.end('id,seq,recorded_at,action\naud-20261119-000044,44,2026-11-19T02:10:00.000Z,WORK_ORDER_CANCELLED\n');
         return;
       }
       if (req.method === 'PATCH' && url.pathname === '/api/v1/operational-events/42/ack') {
@@ -213,52 +219,68 @@ test('E20 P20.4: health/detail + hapus sintesis; op-events FR-034-01 + export sy
     // acknowledged DITURUNKAN dari acknowledgedAt (baris 43: field
     // `acknowledged: false` diabaikan karena acknowledgedAt terisi),
     // machineName null bila mesin dihapus, meta.count = baris halaman.
-    const page = await httpApiClient.getOperationalEventsPage({ acknowledged: true });
+    // P33.4 (FAT-294): `category`/`alarmState`/`condition` server dibaca.
+    const page = await httpApiClient.getOperationalEventsPage({ acknowledged: true, category: 'operational' });
     assert.equal(page.data.length, 2);
     assert.equal(page.pagination.total_count, 2);
     assert.equal(page.data[0].description, 'Machine renamed');
     assert.equal(page.data[0].recorded_at, '2026-11-19T02:10:00.000Z');
     assert.equal(page.data[0].machine_name, 'Press Line 1');
     assert.equal(page.data[0].acknowledged, false);
+    assert.equal(page.data[0].category, 'system');
+    assert.equal(page.data[0].alarm_state, 'active-unack');
+    assert.equal(page.data[0].condition, 'NORMAL');
     assert.equal(page.data[1].machine_name, null);
     assert.equal(page.data[1].acknowledged, true);
     assert.equal(page.data[1].acknowledged_by, 'ADM-001');
+    assert.equal(page.data[1].category, 'operational');
+    assert.equal(page.data[1].alarm_state, 'acked');
+    assert.equal(page.data[1].condition, 'CLEAR');
 
     const find = (method: string, path: string) =>
       seen.find((s) => s.method === method && s.path === path);
-    // Filter acknowledged dikirim; machine_id TIDAK ke endpoint global.
+    // Filter acknowledged + category dikirim; machine_id TIDAK ke endpoint global.
     const opCall = find('GET', '/api/v1/operational-events');
     assert.ok(opCall?.search.includes('acknowledged=true'));
+    assert.ok(opCall?.search.includes('category=operational'));
     assert.equal(opCall?.search.includes('machine_id'), false);
 
-    // /system/audit: machine_id dikirim; tanpa field karangan.
-    const auditPage = await httpApiClient.getSystemAuditPage({
+    // /system/audit-trail (P33.4): record arsip — seq/actor/action/
+    // old→new — BUKAN OperationalEvent; tanpa field karangan.
+    const auditPage = await httpApiClient.getSystemAuditTrailPage({
       machine_id: 'CNC-MILLING-01',
-      event_type: 'WORK_ORDER_CANCELLED',
+      action: 'WORK_ORDER_CANCELLED',
     });
     assert.equal(auditPage.data.length, 1);
-    assert.equal(auditPage.data[0].event_type, 'WORK_ORDER_CANCELLED');
-    assert.equal(auditPage.data[0].acknowledged, true);
-    assert.equal('operator_id' in auditPage.data[0], false);
-    assert.equal('client_ip' in auditPage.data[0], false);
-    assert.equal('access_mode' in auditPage.data[0], false);
-    const auditCall = find('GET', '/api/v1/system/audit');
+    assert.equal(auditPage.data[0].action, 'WORK_ORDER_CANCELLED');
+    assert.equal(auditPage.data[0].seq, 44);
+    assert.equal(auditPage.data[0].actor, 'ADM-001');
+    assert.equal(auditPage.data[0].actor_role, 'ADMIN');
+    assert.deepEqual(auditPage.data[0].old_value, { status: 'ACTIVE' });
+    assert.deepEqual(auditPage.data[0].new_value, { status: 'CANCELLED' });
+    assert.equal(auditPage.data[0].reason, 'Cancelled WO');
+    assert.equal(auditPage.data[0].source, 'panel');
+    assert.equal('event_type' in auditPage.data[0], false);
+    assert.equal('acknowledged' in auditPage.data[0], false);
+    assert.equal(auditPage.pagination.total_count, 1);
+    assert.equal(auditPage.pagination.retention_days, 90);
+    const auditCall = find('GET', '/api/v1/system/audit-trail');
     assert.ok(auditCall?.search.includes('machine_id=CNC-MILLING-01'));
-    assert.ok(auditCall?.search.includes('event_type=WORK_ORDER_CANCELLED'));
+    assert.ok(auditCall?.search.includes('action=WORK_ORDER_CANCELLED'));
 
-    // Export system-audit: format + filter + header X-Export-*.
-    const exported = await httpApiClient.exportSystemAuditData({
+    // Export audit-trail: format + filter + header X-Export-*.
+    const exported = await httpApiClient.exportSystemAuditTrailData({
       from: '2026-11-01T00:00:00Z',
       to: '2026-11-12T00:00:00Z',
-      machine_id: 'CNC-MILLING-01',
+      action: 'WORK_ORDER_CANCELLED',
       format: 'csv',
     });
-    assert.equal(exported.filename, 'system_audit_2026-11-19.csv');
+    assert.equal(exported.filename, 'system_audit_trail_2026-11-19.csv');
     assert.equal(exported.format, 'csv');
     assert.equal(exported.rowCount, 1);
-    assert.equal(exported.metadata.source, 'system_audit');
-    const exportCall = find('GET', '/api/v1/system/audit/export');
-    assert.ok(exportCall?.search.includes('machine_id=CNC-MILLING-01'));
+    assert.equal(exported.metadata.source, 'system_audit_trail');
+    const exportCall = find('GET', '/api/v1/system/audit-trail/export');
+    assert.ok(exportCall?.search.includes('action=WORK_ORDER_CANCELLED'));
     assert.ok(exportCall?.search.includes('format=csv'));
 
     // Ack: acknowledged diturunkan dari acknowledgedAt respons.

@@ -18,9 +18,9 @@
  * belum masuk tabel) jatuh ke `system` — lebih aman tampil di arsip
  * audit daripada hilang dari kedua dropdown.
  */
-import { OPERATIONAL_EVENT_TYPES, type OperationalEventType } from '../../types/monitoring';
+import { OPERATIONAL_EVENT_TYPES, type EventCategory, type OperationalEventType } from '../../types/monitoring';
 
-export type EventCategory = 'operational' | 'system';
+export type { EventCategory } from '../../types/monitoring';
 
 /** 14 nilai eksplisit keluarga operasional (sisanya = sistem). */
 const OPERATIONAL_TYPES = new Set<string>([

@@ -123,11 +123,10 @@ export const StationRegisterModal: React.FC<StationRegisterModalProps> = ({
         <div className="p-2.5 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200">
           Dua kelas ID: perangkat edge berpola STM32- (contoh: STM32-OEE-01) dan
           terminal HMI berpola STATION-/KIOSK-/ADMIN- (contoh: STATION-LINI-01).
-          Server saat ini HANYA menerima ID berpola STM32- — ID terminal
-          ditolak dengan 400 &quot;Device ID must start with &apos;STM32-&apos;...&quot;
-          sampai backend diperbaiki (FAT-237 / B30.1); pesan penolakan server
-          ditampilkan apa adanya. API tidak menyediakan field hostname —
-          identitas stasiun adalah Station ID-nya.
+          Server kini menerima ID terminal juga (terbukti live 2026-11-23:
+          ADMIN-CONSOLE-01 terdaftar, FAT-236); bila server menolak, pesan
+          penolakan ditampilkan apa adanya. API tidak menyediakan field
+          hostname — identitas stasiun adalah Station ID-nya.
         </div>
         {submitError && (
           <div role="alert" className="p-2.5 rounded border border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-800 text-xs text-red-800 dark:text-red-200">

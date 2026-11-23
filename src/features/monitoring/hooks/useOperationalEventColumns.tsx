@@ -6,25 +6,19 @@ import { useAuth } from '../../../context/AuthContext';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { OperationalEventMachineCell } from '../components/OperationalEventMachineCell';
-import { getEventAckState, EventAckState } from '../eventAckState';
 import { formatDateTime } from '../../../utils/formatDate';
 
-// FAT-292 (P33.2, E33): kolom Ack membedakan 'active-unack' dari
-// 'rtn-unack' (ISA-18.2) via getEventAckState — derivasi best-effort
-// dalam jendela halaman yang dimuat; state server-side yang eksak
-// butuh backend B33.4 (FAT-298).
-export function useOperationalEventColumns(
-  onAck: (ev: OperationalEvent) => void,
-  events: readonly OperationalEvent[] = []
-) {
+// FAT-292 (P33.2, E33) + P33.4 (FAT-294): kolom Ack membedakan
+// 'active-unack' dari 'rtn-unack' (ISA-18.2) — kini dari `alarm_state`
+// SERVER per baris (B33.4), bukan derivasi client-side (derivasi lama
+// `eventAckState.ts` dihapus — salah bila pasangan ONLINE ada di halaman
+// lain). 'rtn-unack' = kondisi sudah clear sendiri tapi belum pernah
+// dilihat operator — tetap butuh ack, tampil netral (bukan warning).
+export function useOperationalEventColumns(onAck: (ev: OperationalEvent) => void) {
   const { checkCapability } = useAuth();
 
   return useMemo<ColumnDef<OperationalEvent, unknown>[]>(
     () => {
-      const ackStates = new Map<string, EventAckState>();
-      for (const ev of events) {
-        ackStates.set(ev.id, getEventAckState(ev, events));
-      }
       return [
         {
           id: 'timestamp',
@@ -88,9 +82,9 @@ export function useOperationalEventColumns(
               );
             }
             // Belum di-ack: 'rtn-unack' = kondisi sudah clear sendiri
-            // (ada DEVICE_ONLINE lebih baru) tapi belum pernah dilihat —
+            // (server, dari log lengkap) tapi belum pernah dilihat —
             // tetap butuh ack, tampil netral (bukan warning).
-            const state = ackStates.get(ev.id) ?? 'active-unack';
+            const state = ev.alarm_state;
             return state === 'rtn-unack' ? (
               <Badge variant="neutral">Clear — belum di-ack</Badge>
             ) : (
@@ -135,6 +129,6 @@ export function useOperationalEventColumns(
         },
       ];
     },
-    [checkCapability, onAck, events]
+    [checkCapability, onAck]
   );
 }

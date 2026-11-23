@@ -3,7 +3,8 @@ import {
   DowntimeHistoryQuery,
   OperationalEventsExportQuery,
   OperationalEventsQuery,
-  SystemAuditExportQuery,
+  SystemAuditTrailExportQuery,
+  SystemAuditTrailQuery,
   TelemetryExportQuery,
   TelemetryHistoryQuery,
   WorkOrdersQuery,
@@ -90,6 +91,11 @@ export function buildDowntimeExportEndpoint(query: DowntimeExportQuery): string 
  * cursor, envelope) — tanpa trailing slash, tanpa `machine_id` (hanya
  * /system/audit), tanpa `severity`. Filter `acknowledged` yang sebelumnya
  * dibuang kini dikirim.
+ *
+ * P33.4 (FAT-294, B33.1/B33.4): + `category` (`system|operational`) dan
+ * `alarmState` (`active-unack|rtn-unack|acked`) — terdaftar di OpenAPI
+ * live 2026-11-23. `category` adalah keluarga halaman: Alarm & Event
+ * selalu mengirim `operational` (lihat `useOperationalEventsQuery`).
  */
 export function buildOperationalEventsEndpoint(query: OperationalEventsQuery): string {
   const isGlobal = !query.device_id || query.device_id === 'ALL';
@@ -101,6 +107,8 @@ export function buildOperationalEventsEndpoint(query: OperationalEventsQuery): s
     to: query.to,
     event_type: query.event_type,
     acknowledged: query.acknowledged !== undefined ? String(query.acknowledged) : undefined,
+    category: query.category,
+    alarmState: query.alarm_state,
     cursor: query.cursor,
     limit: query.limit,
     envelope: query.envelope ?? true,
@@ -134,20 +142,47 @@ export function buildOperationalEventsExportEndpoint(query: OperationalEventsExp
 }
 
 /**
- * E20 P20.4 (FAT-156, O9): `GET /system/audit/export` — filter sama dengan
- * daftar (`from`, `to`, `event_type`, `machine_id`).
+ * P33.4 (FAT-294, B33.2): `GET /system/audit-trail` — filter daftar
+ * halaman Audit Trail (actor, category, entityId, entityType, action,
+ * machine_id, from, to, limit, cursor). Tanpa param `envelope` (respons
+ * selalu `{data, meta, pagination}`).
  */
-export function buildSystemAuditExportEndpoint(query: SystemAuditExportQuery): string {
-  // E23 Batch 3 (FAT-192, N-23): spec MEWAJIBKAN `limit` (default 10000).
+export function buildSystemAuditTrailEndpoint(query: SystemAuditTrailQuery): string {
   const qs = buildQueryString({
+    actor: query.actor,
+    category: query.category,
+    entityId: query.entityId,
+    entityType: query.entityType,
+    action: query.action,
+    machine_id: query.machine_id,
     from: query.from,
     to: query.to,
-    event_type: query.event_type,
-    machine_id: query.machine_id,
+    limit: query.limit,
+    cursor: query.cursor,
+  });
+  return `${ADMIN_ENDPOINTS.SYSTEM_AUDIT_TRAIL.buildPath()}${qs}`;
+}
+
+/**
+ * P33.4 (FAT-294, B33.2): `GET /system/audit-trail/export` — filter sama
+ * dengan daftar KECUALI `machine_id` (tidak terdaftar di endpoint ekspor
+ * live — lihat `SystemAuditTrailExportQuery`). Menggantikan
+ * `buildSystemAuditExportEndpoint` (/system/audit/export, alias lama).
+ */
+export function buildSystemAuditTrailExportEndpoint(query: SystemAuditTrailExportQuery): string {
+  // E23 Batch 3 (FAT-192, N-23): spec MEWAJIBKAN `limit` (default 10000).
+  const qs = buildQueryString({
+    actor: query.actor,
+    category: query.category,
+    entityId: query.entityId,
+    entityType: query.entityType,
+    action: query.action,
+    from: query.from,
+    to: query.to,
     format: query.format,
     limit: query.limit ?? 10000,
   });
-  return `/api/v1/system/audit/export${qs}`;
+  return `${ADMIN_ENDPOINTS.SYSTEM_AUDIT_TRAIL_EXPORT.buildPath()}${qs}`;
 }
 
 export function buildTelemetryHistoryEndpoint(query: TelemetryHistoryQuery): string {

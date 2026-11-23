@@ -141,6 +141,10 @@ export function useOperationalEventsQuery(
           device_id: deviceIdOrGlobal === 'ALL' ? undefined : deviceIdOrGlobal,
           event_type: filters.eventType,
           acknowledged: extras?.acknowledged,
+          // P33.4 (FAT-294, B33.1): halaman Alarm & Event HANYA keluarga
+          // operasional — baris sistem (mis. AUTH_TOKEN_REFRESHED) tidak
+          // lagi lolos ke halaman ini (temuan audit 2026-11-23 §4).
+          category: 'operational',
           from: filters.from,
           to: filters.to,
           limit: filters.limit,
@@ -152,22 +156,28 @@ export function useOperationalEventsQuery(
   });
 }
 
-export function useSystemAuditQuery(
+/**
+ * P33.4 (FAT-294, B33.2): query halaman Audit Trail — `GET
+ * /system/audit-trail` (store append-only). Menggantikan
+ * `useSystemAuditQuery` (`/system/audit`, alias feed operasional).
+ * Filter Event Type halaman dipetakan ke param `action` (nilai keluarga
+ * sistem); filter Mesin ke `machine_id`.
+ */
+export function useSystemAuditTrailQuery(
   filters: HistoryFilters,
   cursor?: string,
   enabled = true
 ) {
   return useQuery({
-    queryKey: ['system-audit', filters, cursor],
+    queryKey: ['system-audit-trail', filters, cursor],
     staleTime: HISTORY_DATA_STALE_TIME_MS,
     enabled,
     queryFn: ({ signal }) =>
-      apiClient.getSystemAuditPage(
+      apiClient.getSystemAuditTrailPage(
         {
           from: filters.from,
           to: filters.to,
-          event_type: filters.eventType,
-          // E20 P20.4 (FAT-156, R10/O10): `machine_id` hanya ke /system/audit.
+          action: filters.eventType,
           machine_id: filters.machineId,
           limit: filters.limit,
           cursor,

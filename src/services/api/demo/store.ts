@@ -5,9 +5,10 @@
  * Satu file = satu domain. Barrel penggabung ada di file induknya.
  */
 import { AuthClientHooks } from './helpers';
-import { INITIAL_MACHINES, INITIAL_DEVICES, INITIAL_DEVICE_HEALTH_OVERRIDES, INITIAL_PRODUCTS, INITIAL_OPERATORS, INITIAL_WORK_ORDERS, INITIAL_LIVE_STATES, INITIAL_DOWNTIME_EVENTS, INITIAL_OPERATIONAL_EVENTS, INITIAL_MQTT_CLIENTS, INITIAL_MQTT_ROLES, INITIAL_MQTT_GROUPS, INITIAL_BROKER_CONFIG, INITIAL_CONFIG_VERSIONS, INITIAL_BROKER_OPERATIONS, INITIAL_BROKER_BACKUPS, INITIAL_SYSTEM_HEALTH, INITIAL_HEALTH_DETAIL, INITIAL_IAM_ROLES, INITIAL_IAM_PERMISSIONS, INITIAL_IAM_ASSIGNMENTS, INITIAL_IAM_POLICIES, INITIAL_IAM_AUDIT_DECISIONS, INITIAL_PRODUCTION_LINES, INITIAL_SHIFTS, INITIAL_SHIFT_SCHEDULES } from '../mockData';
+import { INITIAL_MACHINES, INITIAL_DEVICES, INITIAL_DEVICE_HEALTH_OVERRIDES, INITIAL_PRODUCTS, INITIAL_OPERATORS, INITIAL_WORK_ORDERS, INITIAL_LIVE_STATES, INITIAL_DOWNTIME_EVENTS, INITIAL_OPERATIONAL_EVENTS, INITIAL_AUDIT_TRAIL, INITIAL_MQTT_CLIENTS, INITIAL_MQTT_ROLES, INITIAL_MQTT_GROUPS, INITIAL_BROKER_CONFIG, INITIAL_CONFIG_VERSIONS, INITIAL_BROKER_OPERATIONS, INITIAL_BROKER_BACKUPS, INITIAL_SYSTEM_HEALTH, INITIAL_HEALTH_DETAIL, INITIAL_IAM_ROLES, INITIAL_IAM_PERMISSIONS, INITIAL_IAM_ASSIGNMENTS, INITIAL_IAM_POLICIES, INITIAL_IAM_AUDIT_DECISIONS, INITIAL_PRODUCTION_LINES, INITIAL_SHIFTS, INITIAL_SHIFT_SCHEDULES } from '../mockData';
 import { AdminEndpointKey, FORBIDDEN_ENDPOINT_PATTERNS, isValidEndpointPrefix } from '../endpoints';
 import { OperationalEvent } from '../../../types/monitoring';
+import { AuditTrailRecord } from '../../../types/system';
 import { BrokerConfigSchema, BrokerOperation, BrokerBackup } from '../../../types/mqtt';
 import { IamInfo } from '../../../types/iam';
 import { UserRole, NetworkAccessMode, ApiError } from '../../../types/auth';
@@ -74,6 +75,13 @@ class MemoryStore {
   liveStates = [...INITIAL_LIVE_STATES];
   downtimes = [...INITIAL_DOWNTIME_EVENTS];
   operationalEvents = [...INITIAL_OPERATIONAL_EVENTS];
+  /**
+   * P33.4 (FAT-294, B33.2): store audit demo TERPISAH dari
+   * `operationalEvents` — cermin `GET /system/audit-trail` (append-only).
+   * `addAudit` menulis ke kedua store: feed operasional (kompatibilitas
+   * tampilan lama) + arsip ini (satu entri per mutasi, `seq` naik).
+   */
+  auditTrail: AuditTrailRecord[] = [...INITIAL_AUDIT_TRAIL];
   mqttClients = [...INITIAL_MQTT_CLIENTS];
   mqttRoles = [...INITIAL_MQTT_ROLES];
   mqttGroups = [...INITIAL_MQTT_GROUPS];
@@ -179,8 +187,8 @@ class MemoryStore {
     extras?: { device_id?: string | null; machine_id?: string | null; machine_name?: string | null; wo_id?: string | null }
   ) {
     void resource_type;
-    void resource_id;
     const now = new Date().toISOString();
+    const eventType = mapDemoAuditActionToEventType(action);
     this.operationalEvents.unshift({
       id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       recorded_at: now,
@@ -189,7 +197,12 @@ class MemoryStore {
       machine_id: extras?.machine_id ?? null,
       machine_name: extras?.machine_name ?? null,
       wo_id: extras?.wo_id ?? null,
-      event_type: mapDemoAuditActionToEventType(action),
+      event_type: eventType,
+      // P33.4 (FAT-294): feed operasional memakai keluarga tabel §1 —
+      // aksi audit demo adalah keluarga sistem (kecuali yang operasional).
+      category: eventType === 'WORK_ORDER_CANCELLED' ? 'operational' : 'system',
+      alarm_state: 'active-unack',
+      condition: 'NORMAL',
       trigger_source: 'ADMIN_PANEL',
       event_code: null,
       snapshot_total_count: null,
@@ -200,6 +213,29 @@ class MemoryStore {
       acknowledged_by: null,
       ack_note: null,
       created_at: now,
+    });
+    // P33.4 (FAT-294, B33.2/B33.3): mutasi yang sama menulis SATU entri ke
+    // arsip audit terpisah — cermin backend (ack → entri
+    // OPERATIONAL_EVENT_ACKNOWLEDGED). `seq` monoton naik; `old_value` /
+    // `new_value` null — demo tidak melacak nilai sebelum/sesudah per
+    // mutasi (jujur: null, bukan karangan); `reason` = deskripsi aksi.
+    this.auditTrail.unshift({
+      id: `aud-trail-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      seq: (this.auditTrail[0]?.seq ?? 0) + 1,
+      recorded_at: now,
+      actor: this.currentUserId,
+      actor_role: this.currentUserRole,
+      action: eventType,
+      category: 'system',
+      entity_type: resource_type,
+      entity_id: resource_id,
+      entity_label: resource_id,
+      old_value: null,
+      new_value: null,
+      reason: details,
+      source: 'panel',
+      prev_hash: null,
+      hash: null,
     });
   }
 
@@ -223,6 +259,15 @@ class MemoryStore {
       machine_name: extras?.machine_name ?? null,
       wo_id: extras?.wo_id ?? null,
       event_type,
+      // P33.4 (FAT-294): kategori dari tabel §1 (pola DEVICE_EVENT_* =
+      // operasional; selainnya ikut `eventCategory` — di sini dihitung
+      // inline supaya store tidak mengimpor fitur monitoring).
+      category: event_type.startsWith('DEVICE_EVENT_') ||
+        ['DEVICE_OFFLINE', 'DEVICE_ONLINE', 'MACHINE_BOUND', 'MACHINE_UNBOUND', 'WORK_ORDER_COMPLETED', 'WORK_ORDER_CANCELLED'].includes(event_type)
+        ? 'operational'
+        : 'system',
+      alarm_state: 'active-unack',
+      condition: event_type === 'DEVICE_OFFLINE' ? 'ACTIVE' : 'NORMAL',
       trigger_source: 'ADMIN_PANEL',
       event_code: null,
       snapshot_total_count: null,
@@ -265,6 +310,7 @@ class MemoryStore {
         workOrders: this.workOrders.map((w) => ({ ...w })),
         downtimes: this.downtimes.map((dt) => ({ ...dt })),
         operationalEvents: this.operationalEvents.map((ev) => ({ ...ev })),
+        auditTrail: this.auditTrail.map((a) => ({ ...a })),
       };
       try {
         return fn();
@@ -276,6 +322,7 @@ class MemoryStore {
         this.workOrders = snapshot.workOrders;
         this.downtimes = snapshot.downtimes;
         this.operationalEvents = snapshot.operationalEvents;
+        this.auditTrail = snapshot.auditTrail;
         throw err;
       }
     });

@@ -182,6 +182,25 @@ export const OPERATIONAL_EVENT_TYPES: ReadonlyArray<Exclude<OperationalEventType
 ];
 
 /**
+ * P33.4 (FAT-294, E33 Opsi 3): keluarga event + state alarm dari server
+ * (kontrak live B33.1/B33.4, OpenAPI 2026-11-23) — BUKAN derivasi panel.
+ * - `EventCategory`: keluarga `event_type` (§1
+ *   docs/BACKEND_REQUIREMENTS_E33_PAGES.md; tabel yang sama dipakai
+ *   `features/monitoring/eventCategory.ts` untuk dropdown).
+ * - `AlarmState`: `active-unack` = kondisi masih aktif & belum di-ack;
+ *   `rtn-unack` = kondisi sudah clear sendiri tapi belum dilihat;
+ *   `acked` = sudah di-ack. Dihitung server dari log lengkap (§4).
+ * - `EventCondition`: kondisi yang dilaporkan baris itu — ACTIVE =
+ *   kondisi masih berlangsung, CLEAR = sudah kembali normal, NORMAL =
+ *   informasional (bukan kondisi alarm).
+ */
+export type EventCategory = 'operational' | 'system';
+
+export type AlarmState = 'active-unack' | 'rtn-unack' | 'acked';
+
+export type EventCondition = 'ACTIVE' | 'CLEAR' | 'NORMAL';
+
+/**
  * E20 P20.4 (FAT-156): bentuk `OperationalEventItem` FR-034-01 persis
  * (API doc §I) — snake_case lokal seperti mapper lain. `acknowledged`
  * diturunkan dari `acknowledgedAt`, bukan dibaca dari field; `machine_name`
@@ -216,4 +235,15 @@ export interface OperationalEvent {
   acknowledged_by: string | null;
   ack_note: string | null;
   created_at: string;
+  /**
+   * P33.4 (FAT-294): field kontrak B33.1/B33.4 — dibaca mapper dari
+   * server, bukan ditebak. `category`/`alarm_state` hilang pada respons
+   * backend lama → mapper memakai fallback terdokumentasi (lihat
+   * `mappers/monitoring-events.ts`): kategori → 'system' (lebih aman
+   * tampil di arsip audit daripada hilang), alarm → 'acked' bila sudah
+   * di-ack, selainnya 'active-unack'. `condition` null bila tak ada.
+   */
+  category: EventCategory;
+  alarm_state: AlarmState;
+  condition: EventCondition | null;
 }

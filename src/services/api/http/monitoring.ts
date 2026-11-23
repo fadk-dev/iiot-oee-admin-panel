@@ -5,14 +5,14 @@
  * Satu file = satu domain. Barrel penggabung ada di file induknya.
  */
 import { MUTATION_TIMEOUT_MS, assertLanForMutation, assertAuthenticatedHttp, reqJson, reqList, reqExport, checkAbortHttp } from './transport';
-import { mapLiveState, mapDowntime, mapOperationalEvent, mapAuditLog, mapTelemetryHistory, mapHourly, mapRollup, mapAggregate } from './mappers';
+import { mapLiveState, mapDowntime, mapOperationalEvent, mapAuditTrailRecord, mapTelemetryHistory, mapHourly, mapRollup, mapAggregate } from './mappers';
 import { num, str, bool, pick } from './primitives';
 import { ADMIN_ENDPOINTS } from '../endpoints';
-import { buildDowntimeExportEndpoint, buildDowntimeHistoryEndpoint, buildOperationalEventsEndpoint, buildOperationalEventsExportEndpoint, buildSystemAuditExportEndpoint, buildTelemetryExportEndpoint, buildTelemetryHistoryEndpoint, buildTelemetryHourlyExportEndpoint, buildTelemetryRollupEndpoint } from '../../../utils/historicalExport';
+import { buildDowntimeExportEndpoint, buildDowntimeHistoryEndpoint, buildOperationalEventsEndpoint, buildOperationalEventsExportEndpoint, buildSystemAuditTrailEndpoint, buildSystemAuditTrailExportEndpoint, buildTelemetryExportEndpoint, buildTelemetryHistoryEndpoint, buildTelemetryHourlyExportEndpoint, buildTelemetryRollupEndpoint } from '../../../utils/historicalExport';
 import { LiveStateRecord, DowntimeEvent, DowntimeReasonResult, OperationalEvent, DowntimeCategory } from '../../../types/monitoring';
 import { HourlyOeePoint, TelemetryAggregatePoint, TelemetryAggregateResult, TelemetryHistoryRecord, TelemetryRangeOptions, TelemetryRollupItem, TelemetryRollupQuery } from '../../../types/analytics';
 import { AuditLogItem } from '../../../types/system';
-import { CursorPageResponse, DowntimeExportQuery, DowntimeHistoryQuery, ExportResult, OperationalEventsExportQuery, OperationalEventsQuery, SystemAuditExportQuery, TelemetryExportQuery, TelemetryHistoryQuery } from '../../../types/historical';
+import { CursorPageResponse, DowntimeExportQuery, DowntimeHistoryQuery, ExportResult, OperationalEventsExportQuery, OperationalEventsQuery, SystemAuditTrailExportQuery, SystemAuditTrailQuery, TelemetryExportQuery, TelemetryHistoryQuery } from '../../../types/historical';
 
 export const httpMonitoring = {
   // -- Live State ------------------------------------------------------------
@@ -174,57 +174,55 @@ export const httpMonitoring = {
     return mapOperationalEvent({ ...raw, id: pick(raw.id, id) });
   },
 
-  async getSystemAuditPage(
-    query: { from?: string; to?: string; event_type?: string; machine_id?: string; limit?: number; cursor?: string | null } = {},
+  /**
+   * P33.4 (FAT-294, B33.2): `GET /system/audit-trail` — arsip audit
+   * append-only, store terpisah (E33 Opsi 3). Menggantikan
+   * `getSystemAuditPage` (`/system/audit`, alias feed operasional) —
+   * alias lama TIDAK dipakai lagi (satu alur kanonik). Gerbang sama
+   * dengan alias lama: ADMIN + LAN, guard `access_control.read`.
+   */
+  async getSystemAuditTrailPage(
+    query: SystemAuditTrailQuery = {},
     signal?: AbortSignal,
   ): Promise<CursorPageResponse<AuditLogItem>> {
     checkAbortHttp(signal);
     assertAuthenticatedHttp();
+    const endpoint = buildSystemAuditTrailEndpoint(query);
     return reqList(
       {
-        path: ADMIN_ENDPOINTS.SYSTEM_AUDIT.buildPath(),
-        query: {
-          limit: query.limit ?? 50,
-          envelope: true,
-          ...(query.from ? { from: query.from } : {}),
-          ...(query.to ? { to: query.to } : {}),
-          ...(query.event_type ? { event_type: query.event_type } : {}),
-          // E20 P20.4 (FAT-156, R10/O10): `machine_id` hanya dikirim ke
-          // /system/audit (D-12) — bukan ke endpoint global op-events.
-          ...(query.machine_id ? { machine_id: query.machine_id } : {}),
-          ...(query.cursor ? { cursor: query.cursor } : {}),
-        },
+        path: endpoint,
         signal,
-        endpointKey: 'SYSTEM_AUDIT',
+        endpointKey: 'SYSTEM_AUDIT_TRAIL',
         capability: 'access_control.read',
       },
-      mapAuditLog,
+      mapAuditTrailRecord,
       query.limit ?? 50,
     );
   },
 
   /**
-   * E20 P20.4 (FAT-156, O9): GET /system/audit/export (API doc §I) —
-   * csv/ndjson/json (default csv), limit 1..100000 default 10000, retensi
-   * 90 hari → 400 RETENTION_EXCEEDED, rate limit 5/min, guard
-   * `access_control.read` (D-13). Filter sama dengan daftar.
+   * P33.4 (FAT-294, B33.2): `GET /system/audit-trail/export` — csv/ndjson/
+   * json (default csv), limit 1..100000 default 10000, retensi 90 hari →
+   * 400 RETENTION_EXCEEDED, rate limit 5/min, guard `access_control.read`.
+   * Filter sama dengan daftar KECUALI `machine_id` (tidak terdaftar di
+   * endpoint ekspor live).
    */
-  async exportSystemAuditData(
-    query: SystemAuditExportQuery,
+  async exportSystemAuditTrailData(
+    query: SystemAuditTrailExportQuery,
     signal?: AbortSignal,
   ): Promise<ExportResult> {
     checkAbortHttp(signal);
     assertAuthenticatedHttp();
-    const endpoint = buildSystemAuditExportEndpoint(query);
+    const endpoint = buildSystemAuditTrailExportEndpoint(query);
     return reqExport(
-      { path: endpoint, signal, endpointKey: 'SYSTEM_AUDIT_EXPORT', capability: 'access_control.read' },
+      { path: endpoint, signal, endpointKey: 'SYSTEM_AUDIT_TRAIL_EXPORT', capability: 'access_control.read' },
       query.format,
-      'system_audit.csv',
+      'system_audit_trail.csv',
     );
   },
 
   async getAuditLogs(signal?: AbortSignal): Promise<AuditLogItem[]> {
-    const page = await httpMonitoring.getSystemAuditPage({ limit: 200 }, signal);
+    const page = await httpMonitoring.getSystemAuditTrailPage({ limit: 200 }, signal);
     return page.data;
   },
 

@@ -9,7 +9,8 @@ import {
   buildDowntimeHistoryEndpoint,
   buildOperationalEventsEndpoint,
   buildOperationalEventsExportEndpoint,
-  buildSystemAuditExportEndpoint,
+  buildSystemAuditTrailEndpoint,
+  buildSystemAuditTrailExportEndpoint,
   buildTelemetryExportEndpoint,
   buildTelemetryHistoryEndpoint,
   buildTelemetryHourlyExportEndpoint,
@@ -130,6 +131,22 @@ test('Endpoint builders match authoritative backend routes & parse X-Export-* me
   assert.match(opPerDevice, /^\/api\/v1\/operational-events\/STM32-OEE-02\?/);
   assert.match(opPerDevice, /acknowledged=true/);
 
+  // P33.4 (FAT-294, B33.1/B33.4): `category` + `alarmState` dikirim.
+  const opCategory = buildOperationalEventsEndpoint({ device_id: 'ALL', category: 'operational', alarm_state: 'rtn-unack' });
+  assert.match(opCategory, /category=operational/);
+  assert.match(opCategory, /alarmState=rtn-unack/);
+
+  // P33.4 (FAT-294, B33.2): builder audit-trail — path + filter `action`.
+  const auditTrail = buildSystemAuditTrailEndpoint({
+    action: 'OPERATOR_PROVISIONED',
+    machine_id: 'CNC-MILLING-01',
+    limit: 50,
+  });
+  assert.match(auditTrail, /^\/api\/v1\/system\/audit-trail\?/);
+  assert.match(auditTrail, /action=OPERATOR_PROVISIONED/);
+  assert.match(auditTrail, /machine_id=CNC-MILLING-01/);
+  assert.doesNotMatch(auditTrail, /envelope/);
+
   const opGlobalExp = buildOperationalEventsExportEndpoint({
     device_id: 'ALL',
     from: '2026-11-01T00:00:00Z',
@@ -141,18 +158,18 @@ test('Endpoint builders match authoritative backend routes & parse X-Export-* me
   assert.doesNotMatch(opGlobalExp, /machine_id/);
   assert.doesNotMatch(opGlobalExp, /event_type/);
 
-  // E20 P20.4 (FAT-156, O9): ekspor system-audit memakai filter daftar.
-  const auditExp = buildSystemAuditExportEndpoint({
+  // P33.4 (FAT-294, B33.2): ekspor audit-trail memakai filter daftar
+  // (action, bukan event_type; tanpa machine_id — tidak terdaftar).
+  const auditExp = buildSystemAuditTrailExportEndpoint({
     from: '2026-11-01T00:00:00Z',
     to: '2026-11-12T00:00:00Z',
-    event_type: 'WORK_ORDER_CANCELLED',
-    machine_id: 'CNC-MILLING-01',
+    action: 'OPERATOR_PROVISIONED',
     format: 'ndjson',
     limit: 100,
   });
-  assert.match(auditExp, /^\/api\/v1\/system\/audit\/export\?/);
-  assert.match(auditExp, /event_type=WORK_ORDER_CANCELLED/);
-  assert.match(auditExp, /machine_id=CNC-MILLING-01/);
+  assert.match(auditExp, /^\/api\/v1\/system\/audit-trail\/export\?/);
+  assert.match(auditExp, /action=OPERATOR_PROVISIONED/);
+  assert.doesNotMatch(auditExp, /machine_id/);
   assert.match(auditExp, /format=ndjson/);
 
   const opDevExp = buildOperationalEventsExportEndpoint({

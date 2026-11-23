@@ -28,6 +28,17 @@ export interface CursorPaginationMeta {
   has_more: boolean;
   truncated?: boolean;
   total_count?: number;
+  /**
+   * P33.4 (FAT-294, B33.4): ringkasan state server untuk filter yang sama
+   * (`GET /operational-events`) — dipakai jumlah tab Alarm & Event.
+   * Tidak ada di endpoint lain (jangan dibaca sebagai total di sana).
+   */
+  counts?: { activeUnack: number; rtnUnack: number; acked: number };
+  /**
+   * P33.4 (FAT-294, B33.2): retensi arsip audit dalam hari
+   * (`GET /system/audit-trail`) — ditampilkan halaman Audit Trail bila ada.
+   */
+  retention_days?: number;
 }
 
 export interface CursorPageResponse<T> {
@@ -94,11 +105,50 @@ export interface DowntimeExportQuery {
  * — tanpa `machine_id` (hanya `/system/audit`) dan tanpa `severity`
  * (tidak didukung; parameter tak dikenal diabaikan 200). D-12: hanya kirim
  * parameter terdaftar per endpoint.
+ *
+ * P33.4 (FAT-294, B33.1/B33.4): kontrak live menambahkan `category`
+ * (`system|operational`) dan `alarmState` (`active-unack|rtn-unack|acked`)
+ * — keduanya terdaftar di OpenAPI live 2026-11-23 dan dikirim panel.
  */
 export interface OperationalEventsQuery extends HistoricalTimeFilter {
   device_id?: string; // undefined or 'ALL' => global /api/v1/operational-events
   event_type?: string;
   acknowledged?: boolean;
+  category?: 'operational' | 'system';
+  alarm_state?: 'active-unack' | 'rtn-unack' | 'acked';
+}
+
+/**
+ * P33.4 (FAT-294, B33.2): `GET /system/audit-trail` — store audit
+ * append-only (OpenAPI live 2026-11-23). Filter mengikuti daftar
+ * halaman Audit Trail: `action` = nilai Event Type keluarga sistem,
+ * `machine_id` = mesin. Tidak ada param `envelope` (respons selalu
+ * `{data, meta, pagination}`).
+ */
+export interface SystemAuditTrailQuery extends HistoricalTimeFilter {
+  actor?: string;
+  category?: 'operational' | 'system';
+  entityId?: string;
+  entityType?: string;
+  action?: string;
+  machine_id?: string;
+}
+
+/**
+ * P33.4 (FAT-294, B33.2): `GET /system/audit-trail/export` — filter sama
+ * dengan daftar, KECUALI `machine_id` (tidak terdaftar di endpoint ekspor
+ * live — filter mesin tidak diteruskan ke ekspor; lihat AuditTrailPage).
+ */
+export interface SystemAuditTrailExportQuery {
+  actor?: string;
+  category?: 'operational' | 'system';
+  entityId?: string;
+  entityType?: string;
+  action?: string;
+  from: string;
+  to: string;
+  format: ExportFormat;
+  limit?: number;
 }
 
 /**
@@ -117,22 +167,6 @@ export interface OperationalEventsExportQuery {
    * `machine_id` tetap TIDAK dikirim (B23: hanya /system/audit).
    */
   event_type?: string;
-  format: ExportFormat;
-  limit?: number;
-}
-
-/**
- * E20 P20.4 (FAT-156): `GET /system/audit/export` memakai filter yang sama
- * dengan daftar (`from`, `to`, `event_type`, `machine_id`) — format
- * csv/ndjson/json (default csv), limit 1..100000 default 10000, retensi
- * 90 hari → 400 RETENTION_EXCEEDED, rate limit 5/min, guard
- * `access_control.read` (D-13).
- */
-export interface SystemAuditExportQuery {
-  from: string;
-  to: string;
-  event_type?: string;
-  machine_id?: string;
   format: ExportFormat;
   limit?: number;
 }

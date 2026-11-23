@@ -4284,3 +4284,161 @@ lanjut — angka-angka ini dari backend, bukan mapper panel):**
 - Kolom TANGGAL pada rollup Per Hari menampilkan "CNC-MILLING-SIM"
   (bukan tanggal) pada tampilan yang diekstrak — perlu dicek saat
   verifikasi live, apakah cacat tampil atau artefak ekstraksi.
+
+## §60 — Sweep Linear 2026-11-23: FAT-306 + P30.3 Done live; FAT-307 rollup TANGGAL (2026-11-23)
+
+**Push #24** `3af26eaf` 2026-11-23 ~09:52 WIB (FAT-306 + AUDIT.md §59 +
+LINEAR.md + seed v48) — disetujui Fathur ("Ya, push sekarang").
+
+**Verifikasi visual live 2026-11-23 10:07–10:08 WIB (ADM-001, browser,
+URL bersih, deploy 3af26eaf) — FAT-306 LULOS 5/6:**
+- (a) Mesin default = CNC-MILLING-SIM ("CNC-MILLING-SIM · Milling 5-Axis
+  CNC (Simulation)"; header "7 hari terakhir · Mesin CNC-MILLING-SIM").
+- (b) Ringkasan termuat, 0× "Gagal memuat": OEE 1,7%, Availability 1,7%
+  (Run 1m / Operating 230m), Performance 91,8% (Target/Jam 63 pcs),
+  Quality 91,8% (24.590 good / 0 defect).
+- (c) Timeline termuat (mis. "Segmen 23:42–23:47 READY",
+  "23:47–09:12 UNPLANNED_DOWNTIME"; sisanya UNCONFIGURED 5m).
+- (d) Per Jam termuat (08:00 OEE 17,89%, 07:00 33,31%, 06:00 42,76%).
+- (e) "CNC-MILLING-01" 0 kemunculan; "CNC-MILLING-SIM" 8×.
+- (f) GAGAL — rollup Per Hari (Shift): kolom TANGGAL menampilkan
+  "CNC-MILLING-SIM" di ketiga baris (bukan tanggal). Bukan artefak
+  ekstraksi — cacat tampil nyata, dipisah ke FAT-307.
+- FAT-306 → **Done** (komentar bukti Linear). Observasi angka backend
+  dari §59 terkonfirmasi ulang: Per Jam 23:00 Performance 6.626,67%,
+  Quality 2,83%, OEE 187,39% — agregasi backend di luar lingkup panel.
+
+**FAT-307 (baru, Medium, standalone) — Rollup Per Hari: kolom TANGGAL
+menampilkan ID mesin:**
+- Akar masalah PANEL (terbukti di kode): `mapRollup`
+  (`src/services/api/http/mappers/monitoring-telemetry.ts:177`) memilih
+  groupKey dengan urutan pick `groupKey → lineId → machineId → deviceId →
+  bucket` tanpa memperhatikan groupBy. Untuk groupBy=day server mengirim
+  `bucket` (tanggal) DAN `machineId`; machineId menang. `OeeRollupTable`
+  merender `row.groupKey` sebagai kolom pertama untuk groupBy=day.
+  Kontrak server sudah benar (OpenAPI live 2026-11-23:
+  GET /telemetry/rollup mengembalikan `bucket` + `groupBy` per baris).
+- Perbaikan (lokal, belum push): groupKey dipilih mengikuti groupBy —
+  day/month → `bucket` dulu; machine → `machineId`; line → `lineId`.
+- Tes BARU `src/services/api/http/mappers/monitoring-telemetry.test.ts`
+  (5 tes: day→bucket, month→bucket, machine→machineId, line→lineId,
+  day tanpa bucket jatuh ke machineId) — lolos 5/5. tsc 0.
+  FAT-307 In Progress; menunggu pusat verifikasi penuh + push +
+  verifikasi visual live.
+
+**P30.3 (FAT-256) → Done — verifikasi visual live 10:07–10:08 WIB:**
+panel stasiun tak dikenal tampil sebagai "Diagnostik Terminal — Stasiun
+Tak Terdaftar" ("Terminal HMI yang mencoba mengirim data tanpa terdaftar
+di registry (event SECURITY_REJECTION, device_id null, station_label
+mentah)..."); empty state "Tidak ada terminal tak dikenal yang mencoba
+mengirim data."; frasa "perangkat tak dikenal" 0×.
+**P30.1 (FAT-254) + P30.2 (FAT-255) tetap In Review (verifikasi
+sebagian):** kolom JENIS ada + badge "Edge device" untuk STM32-OEE-SIM
+terbukti; catatan dua kelas ID di modal registrasi terbukti verbatim.
+Yang belum teramati live: badge "Terminal" (tidak ada baris STATION-/
+KIOSK- di data live) dan ringkasan commissioning (hanya muncul SETELAH
+registrasi sukses — `StationRegisterModal.tsx:31,65`; cek baca-saja
+tidak bisa mencapainya). Keduanya menunggu FAT-236 AC1 (registrasi
+ADMIN-CONSOLE-01). Catatan: isi modal menyebut server "HANYA menerima
+ID berpola STM32- ... sampai backend diperbaiki (FAT-237 / B30.1)" —
+FAT-237 kini Done, jadi catatan itu mungkin sudah basi; AC1 akan
+membuktikannya.
+
+**Sweep Linear 2026-11-23 (perintah Fathur 09:52 WIB):** daftar lengkap
+via list_issues includeArchived + paginasi = **302 issue (267 Done /
+21 Todo / 2 In Progress / 11 In Review / 1 Canceled)**. Seed v48 yang
+ikut Push #24 SALAH hitung (total 306, In Review 3) — koreksi jadi
+seed v49 di push berikutnya. Terbuka 34. DITUTUP: FAT-211 (E24; anak
+FAT-212 + FAT-213 Done) dan FAT-226 (E26; anak FAT-227/228/229/230
+Done) — komentar bukti dipasang. Pelajaran alat: `save_issue` memakai
+field `state`, bukan `status` (`status` diabaikan diam-diam, ok:true
+tetapi tidak berubah). FAT-237 + FAT-231 ternyata sudah Done.
+Tidak ditutup: epik E33 (FAT-290) + E30 (FAT-248) + E25 (FAT-214, anak
+FAT-247 gapless menunggu keputusan Fathur) + FAT-7; B33.1–B33.4
+(FAT-295–298, In Review, milik agen lain); H30.1–H30.4 (FAT-249–252,
+In Review, HMI); D30.1 (FAT-260, menunggu keputusan Fathur); H30.5
+(FAT-253, tugas fisik Fathur); SYS-B (FAT-71/74/77/83, backend); FAT-28
+(In Progress, sisa 403 role-gate butuh login OPERATOR); FAT-29
+(keputusan deploy Nginx vs Vercel); FAT-30 (tes LAN); FAT-31
+(verifikasi visual, Fathur). Berjalan: implementasi P33.4 (FAT-294) +
+P33.9 (FAT-305) oleh 2 subagen paralel; verifikasi live FAT-236
+AC1–AC4 (browser). Antre: ADR D33.1 (FAT-299), checklist DoD FAT-27.
+
+## §61 — D33.1 (FAT-299): ADR arsitektur 3 store (2026-11-23)
+
+Dokumen keputusan ditulis: `docs/ADR-E33-three-store-architecture.md`
+(Status Accepted — keputusan Fathur 2026-11-21 07:44 + 10:20 WIB, target
+Opsi 3 diingatkan lagi 10:05 WIB). Isi: konteks pencampuran (1 tabel, 32
+nilai, `/system/audit` = alias, ack memutasi audit), keputusan 3 store /
+3 halaman + rute kanonik, batas Opsi 3 (enum 32 tetap; ingestion tidak
+berubah; audit IAM tetap; demo tetap satu store in-memory — pemisahan
+adalah kontrak Real/live), kontrak ringkas (category, alarmState,
+`/system/audit-trail`, `auditEntry`, cursor IAM), jawaban R-18 (machine_id
+global DIDUKUNG) / R-19 (`acknowledged` TIDAK didukung di `/system/audit`),
+DoD per tiket anak, syarat tutup epic FAT-290 (semua anak Done + ketiga
+store terverifikasi live end-to-end), catatan HMI/EE (HMI tidak berubah
+cara kirim event; `SECURITY_REJECTION` tampil di Audit Trail; EE tidak
+perlu firmware baru).
+Adendum E33 ditambahkan di `docs/API_DOCUMENTATION.md` (salinan lama —
+hanya adendum bertanggal, isi lama tidak diubah; sumber kebenaran kontrak:
+OpenAPI live 2026-11-23 + `docs/BACKEND_REQUIREMENTS_E33_PAGES.md`).
+FAT-299 → **Done** (dokumen + epic diperbarui). Epic FAT-290 tetap
+terbuka — hanya ditutup setelah FAT-294 (P33.4) ditutup.
+
+## §62 — P33.4 (FAT-294): panel konsumsi kontrak B33.1–B33.4 — category, alarmState server, totalCount/counts server, Audit Trail pindah ke GET /system/audit-trail
+
+**Tiket:** FAT-294 (P33.4, E33 Opsi 3) — ruang lingkup diperinci komentar 2026-11-23 dari audit end-to-end (temuannya: tab "50+", badge Clear 0 baris hal. 1, dropdown vs baris tidak selaras). **Status: SELESAI LOKAL, BELUM push, BELUM verifikasi visual live.** Dikerjakan 2026-11-23 ~10:07–10:40 WIB. TIDAK ada perubahan Linear (instruksi tugas); FAT-294 → In Review 2026-11-23 (pusat verifikasi lokal hijau); Done hanya setelah push + verifikasi visual live.
+
+**Kontrak yang dikonsumsi (sudah live, OpenAPI 2026-11-23):** `category` + `alarmState` param & field di `GET /operational-events` dan `GET /system/audit`; `pagination.totalCount` (total asli) + `pagination.counts {activeUnack, rtnUnack, acked}`; `GET /system/audit-trail` (record `id, seq, recordedAt, actor, actorRole, action, category, entityType/Id/Label, oldValue, newValue, reason, source, prevHash, hash`; pagination `totalCount, retentionDays`) + `GET /system/audit-trail/export`.
+
+### Yang berubah (5 butir ruang lingkup)
+
+1. **Kirim `category`.** `useOperationalEventsQuery` selalu mengirim `category=operational` (halaman Alarm & Event hanya keluarga operasional — baris sistem seperti `AUTH_TOKEN_REFRESHED` tidak lagi lolos; temuan audit §4 teratasi di sisi panel). Builder `buildOperationalEventsEndpoint` + `alarmState` param (`query.alarm_state`). `GET /system/audit` tidak lagi dipakai panel — lihat butir 4.
+2. **`alarmState` server menggantikan derivasi client-side.** `OperationalEvent` kini membawa `category`, `alarm_state`, `condition` (mapper `mapOperationalEvent` membaca ketiganya; fallback hanya untuk respons backend lama: kategori → `'system'`, alarm → `'acked'` bila sudah di-ack selainnya `'active-unack'`, `condition` → null). `eventView.ts` (`filterEventsByState`, `sortActionView`) + kolom Ack (`useOperationalEventColumns`, kini tanpa param `events`) membaca `alarm_state` baris itu sendiri. **`eventAckState.ts` + tesnya DIHAPUS** — derivasi pasangan OFFLINE→ONLINE dalam halaman yang dimuat terbukti salah bila pasangan ONLINE ada di halaman lain (bukti audit: Clear 0 baris hal. 1 padahal pasangan 20 Nov 16.53→16.54 ada di halaman lama). Badge "Clear — belum di-ack" kini stabil di halaman berapapun.
+3. **`totalCount`/`counts` server untuk jumlah tab.** `pageMeta` (`primitives.ts`) kini mengutamakan `totalCount`/`total_count` atas `count` (panjang halaman) — perilaku lama dipertahankan bila `totalCount` tidak ada — dan meneruskan `counts` + `retention_days`. `describeTabCounts` menerima objek `{events, pageIndex, hasMore, totalCount?, counts?}`: `counts` ada → kedua tab pasti (`action = activeUnack + rtnUnack`, `history = totalCount`); hanya `totalCount` → Riwayat pasti, Perlu Tindakan dari halaman; tanpa keduanya → hitungan halaman seperti dulu. `TabCount` mendapat flag `server` (tooltip tab membedakan "dihitung server" dari "semua hasil sudah termuat"). **Satu query tambahan ringan (limit=1) di tampilan 'action'** mengambil `counts`/`totalCount` tanpa filter tampilan `acknowledged=false` (query daftar di tampilan itu totalnya hanya mencakup yang belum di-ack — tanpa query kedua, tab Riwayat akan salah); di tampilan 'history' query daftar sudah tanpa filter tampilan sehingga tidak ada query tambahan.
+4. **AuditTrailPage pindah ke `GET /system/audit-trail` — SATU alur kanonik.** `AuditTrailRecord` baru (`types/system.ts`); `AuditLogItem` kini alias record arsip (alias lama `= OperationalEvent` dihapus). Mapper baru `mapAuditTrailRecord` (`oldValue`/`newValue` dipertahankan apa adanya, termasuk null eksplisit — dibaca langsung, bukan lewat `pick` yang melewatkan null). Endpoint registry `SYSTEM_AUDIT_TRAIL` + `SYSTEM_AUDIT_TRAIL_EXPORT`; `getSystemAuditPage`/`exportSystemAuditData`/`mapAuditLog`/`buildSystemAuditExportEndpoint`/`formatSystemAuditExportRows`/`useSystemAuditQuery` **DIHAPUS** (tidak ada fallback ke `/system/audit`). Halaman menampilkan kolom baru: No. (`seq`), Timestamp, Aksi & Pelaku, Entitas, Perubahan (lama → baru), Alasan, Sumber; subjudul "alias" (P33.1) **DIHAPUS** — halaman bukan lagi alias feed operasional; retensi arsip (`pagination.retention_days`) ditampilkan bila ada. Filter Event Type (keluarga sistem) dipetakan ke param `action`; filter Mesin ke `machine_id`; ekspor ke `/system/audit-trail/export` (csv). **Kesenjangan kontrak yang ditemukan:** endpoint ekspor live TIDAK mendaftarkan `machine_id` (daftar menerimanya) — filter Mesin tidak diteruskan ke ekspor; dicatat di komentar halaman + butuh backend bila ingin selaras. Demo: store audit TERPISAH (`store.auditTrail`, seed `INITIAL_AUDIT_TRAIL` 6 record, `seq` 1–6); `addAudit` menulis ke kedua store (feed operasional + arsip, `seq` naik — cermin B33.3: ack → entri `OPERATIONAL_EVENT_ACKNOWLEDGED`); `acknowledgeOperationalEvent` demo kini juga mengubah `alarm_state` → `'acked'` (sebelumnya hanya `acknowledged`, badge akan tetap "Belum Ack"); `getAuditLogs` dialihkan ke audit-trail (limit 200).
+5. **Dropdown vs baris selaras.** Setelah butir 1 + 4: baris Alarm hanya operasional (server menyaring `category=operational`), baris Audit hanya record arsip sistem (store terpisah) — dropdown sistem (18) di Audit vs baris operasional tidak lagi terjadi.
+
+### Verifikasi (lokal, 2026-11-23)
+
+- `npx tsc --noEmit`: **0 error**.
+- `npm test` (suite penuh): **602/602 lolos** (sebelumnya 581 — +21 tes baru: `eventView.test.ts` ditulis ulang untuk state server + `counts`; `mappers/monitoring-events.test.ts` baru — 10 tes: passthrough + fallback mapper op-event & audit-trail; `primitives.test.ts` baru — 7 tes: `totalCount` diutamakan, `counts`, `retentionDays`; builder audit-trail + `category`/`alarmState` di `historicalExport.test.ts`; stub `healthAuditTransport.test.ts` ditulis ulang ke `/system/audit-trail` — asersi record arsip + `total_count`/`retention_days` + ekspor; `modeAndTransport`, `e23-batch3`, `contractAlignment` diperbarui ke nama baru).
+- Batas baris checker: semua file di bawah batas keras (AuditTrailPage 382/600, demo/monitoring 494/600, seeds/monitoring 674/900, serialization 331/500).
+- Catatan: komentar usang di `src/services/api/demo/iam/policies.test.ts:16` (menyebut `buildSystemAuditExportEndpoint` "yang belum ada") dibiarkan — file itu pekerjaan chat lain (P33.9) yang sedang berjalan; bukan ruang lingkup tiket ini.
+
+### Belum terverifikasi — butuh push + live
+
+1. **Verifikasi visual live (butuh push + redeploy Vercel):** (a) `/admin/alarms` — tab menampilkan angka pasti tanpa "+" (Perlu Tindakan = activeUnack+rtnUnack server, Riwayat = totalCount); badge "Clear — belum di-ack" tampil untuk OFFLINE 20 Nov 16.53 (pasangan ONLINE di halaman lain — inilah pembuktian derivasi server vs derivasi lama); tidak ada lagi `AUTH_TOKEN_REFRESHED` di baris Alarm. (b) `/admin/system-audit` — kolom No./Aksi & Pelaku/Entitas/Perubahan/Alasan/Sumber terisi dari store arsip; tidak ada lagi subjudul alias; ekspor CSV berisi kolom arsip. (c) Filter State (Aktif/Clear/Sudah ack) menyaring benar di kedua tampilan.
+2. **Perilaku live B33.1–B33.4 (milik agen lain, FAT-295–298, In Review)** — panel kini mengonsumsinya, tetapi nilai servernya sendiri (apakah `alarmState` OFFLINE 17.21 yang ONLINE-nya di halaman lain benar `rtn-unack`; apakah `counts` cocok dengan filter yang sama) baru terbukti lewat verifikasi (1). Bila nilai server salah, itu temuan backend, bukan panel.
+3. **Ekspor Audit Trail dengan filter Mesin** — sengaja tidak diteruskan (endpoint ekspor tidak menerima `machine_id`); verifikasi live: ekspor mengabaikan filter mesin — bila Fathur menganggapnya cacat, butuh tiket backend (tambahkan `machine_id` ke `GET /system/audit-trail/export`).
+4. **Satu query tambahan limit=1 di tampilan 'action'** — beban tambahan satu request ringan per perubahan filter; pantau di live bila terasa (alternatif: hapus bila server kelak menghitung `counts` tanpa pengaruh `acknowledged` — tidak hari ini).
+
+## §63 — FAT-27: checklist DoD §15 per modul (2026-11-23)
+
+Penilaian selesai 2026-11-23 (read-only, 4 penilai paralel + verifikasi
+koordinator; suite tes dijalankan: 602/602 hijau). Dokumen lengkap:
+`docs/DOD-FAT-27-checklist.md` (13 modul × 14 poin, semua dengan bukti
+file:baris). Ringkas: 182 sel = **89 ✓ / 63 ~ / 12 ✗ / 18 N/A** —
+tidak ada satu pun modul yang memenuhi ke-14 poin. Terkuat: Work Orders
+dan Downtime (10 ✓, 0 ✗). Terlemah: Access Control (4 ✓, 3 ✗) dan
+MQTT/Broker (5 ✓, 3 ✗). Poin ✓ di semua modul: 11 (tanpa token/password
+persisten), 13 (tanpa aktuasi, ADR-003), 14 (tanpa endpoint tak
+terdaftar). Poin lemah lintas modul: 12 (uji integrasi LAN tidak ada di
+modul mana pun — FAT-30 diblokir, butuh LAN; Overview tanpa satu pun file
+tes), 9 (tidak ada modul yang ✓ penuh untuk dialog 409), 7 (5 modul ✗ —
+tanpa React Query/`queryKey`), 1 (Zod tidak konsisten — mapper manual
+dominan; ✗ penuh di Access Control dan MQTT). Yang belum terpenuhi
+menjadi daftar tindak lanjut di dokumen (FAT-30; push P33.4/P33.9/
+FAT-307/FAT-308; kontrak 409 backend; keputusan Fathur atas pengecualian
+Public poin 6, arti `unknown` poin 4, replikasi ADMIN-immutable poin 5;
+refactor mapper ke Zod + migrasi React Query).
+
+**Kendala Linear (dicatat jujur):** FAT-27 ternyata **terarsip**
+(`archivedAt` 2026-11-21 00:07 UTC) — Linear menolak komentar pada issue
+terarsip ("Could not find referenced Issue", 400), dan konektor Linear
+tidak menyediakan alat unarchive (`save_issue` menolak key `archived`).
+Karena itu checklist TIDAK bisa dipasang sebagai komentar tiket (syarat
+Done harfiah tiket) — catatannya hidup di `docs/DOD-FAT-27-checklist.md`.
+FAT-27 tetap In Progress sampai di-unarchive (via UI Linear) dan komentar
+dipasang, atau Fathur menerima dokumen repo sebagai catatannya. Dokumen
+ini belum ikut push #25 (manifest sudah dikunci) — ikut push berikutnya.

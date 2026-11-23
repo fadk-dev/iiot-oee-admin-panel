@@ -7,6 +7,19 @@
 > `docs/API_SYNC_REVIEW.md`. Satu perbedaan yang diketahui: namespace WS di
 > salinan ini masih menyebut `DOWNTIME_STARTED|DOWNTIME_ENDED` (baris 1578);
 > bentuk kanonis baru `DOWNTIME_EVENT_OPENED|DOWNTIME_EVENT_CLOSED`.
+>
+> **Adendum 23 Nov 2026 (E33, Opsi 3 — arsitektur 3 store, ADR
+> `docs/ADR-E33-three-store-architecture.md`):** kontrak baru yang TIDAK ada
+> di salinan lama ini — `GET /system/audit-trail` (store audit append-only
+> terpisah); param `category` (`operational`|`system`) + field `category` /
+> `alarmState` / `condition` dan pagination `counts`/`totalCount` pada
+> `GET /operational-events`; `auditEntry` pada respons `PATCH
+> /operational-events/{id}/ack`; `timestamp` ISO + param `cursor`/`limit` +
+> pagination `totalCount` pada `GET /access-control/audit`. Sumber kebenaran
+> kontrak ini: OpenAPI live 2026-11-23
+> (`~/workspace/oee-live-openapi-2026-11-23.json`) dan
+> `docs/BACKEND_REQUIREMENTS_E33_PAGES.md`. `/system/audit` tetap alias lama
+> (deprecated di sisi panel setelah P33.4). Enum event tetap 32 nilai.
 
 **Fastify 5.x Ingestion Daemon, MQTT Engine & Real-time WebSocket Relay**
 

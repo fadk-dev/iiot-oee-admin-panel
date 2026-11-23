@@ -86,20 +86,24 @@ OPERATIONAL_EVENTS_ACK: {
     buildPath: (id: string) => `/api/v1/operational-events/${enc(id)}/ack`,
   },
 
-SYSTEM_AUDIT: {
-    key: 'SYSTEM_AUDIT',
+SYSTEM_AUDIT_TRAIL: {
+    key: 'SYSTEM_AUDIT_TRAIL',
     method: 'GET',
-    template: '/api/v1/system/audit',
-    buildPath: () => '/api/v1/system/audit',
+    // P33.4 (FAT-294, B33.2): GET /system/audit-trail — store audit
+    // append-only terpisah (E33 Opsi 3). Menggantikan /system/audit
+    // (alias feed operasional) sebagai sumber halaman Audit Trail; alias
+    // lama TIDAK dipakai lagi (satu alur kanonik, tanpa fallback).
+    template: '/api/v1/system/audit-trail',
+    buildPath: () => '/api/v1/system/audit-trail',
   },
 
-// E20 P20.4 (FAT-156): GET /system/audit/export (API doc §I) — csv/ndjson/json,
-// filter sama dengan daftar (from, to, event_type, machine_id), retensi
-// 90 hari, rate limit 5/min, guard `access_control.read` (D-13).
-SYSTEM_AUDIT_EXPORT: {
-    key: 'SYSTEM_AUDIT_EXPORT',
+// P33.4 (FAT-294, B33.2): GET /system/audit-trail/export — csv/ndjson/json,
+// filter sama dengan daftar KECUALI machine_id (tidak terdaftar di endpoint
+// ekspor live), retensi 90 hari, rate limit 5/min, guard `access_control.read`.
+SYSTEM_AUDIT_TRAIL_EXPORT: {
+    key: 'SYSTEM_AUDIT_TRAIL_EXPORT',
     method: 'GET',
-    template: '/api/v1/system/audit/export',
-    buildPath: () => '/api/v1/system/audit/export',
+    template: '/api/v1/system/audit-trail/export',
+    buildPath: () => '/api/v1/system/audit-trail/export',
   },
 };

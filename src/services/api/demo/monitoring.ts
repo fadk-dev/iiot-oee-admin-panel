@@ -10,8 +10,8 @@ import { ADMIN_ENDPOINTS } from '../endpoints';
 import { LiveStateRecord, DowntimeEvent, DowntimeReasonResult, OperationalEvent, DowntimeCategory } from '../../../types/monitoring';
 import { AuditLogItem } from '../../../types/system';
 import { ApiError } from '../../../types/auth';
-import { CursorPageResponse, DowntimeExportQuery, DowntimeHistoryQuery, ExportResult, OperationalEventsExportQuery, OperationalEventsQuery, SystemAuditExportQuery } from '../../../types/historical';
-import { RETENTION_POLICY_DAYS, assertRetentionWindow, buildDowntimeExportEndpoint, buildDowntimeHistoryEndpoint, buildOperationalEventsEndpoint, buildOperationalEventsExportEndpoint, buildSystemAuditExportEndpoint, formatDowntimeExportRows, formatOperationalEventExportRows, formatSystemAuditExportRows, paginateWithCursor, parseExportMetadataHeaders, serializeExportRecords } from '../../../utils/historicalExport';
+import { CursorPageResponse, DowntimeExportQuery, DowntimeHistoryQuery, ExportResult, OperationalEventsExportQuery, OperationalEventsQuery, SystemAuditTrailExportQuery, SystemAuditTrailQuery } from '../../../types/historical';
+import { RETENTION_POLICY_DAYS, assertRetentionWindow, buildDowntimeExportEndpoint, buildDowntimeHistoryEndpoint, buildOperationalEventsEndpoint, buildOperationalEventsExportEndpoint, buildSystemAuditTrailEndpoint, buildSystemAuditTrailExportEndpoint, formatAuditTrailExportRows, formatDowntimeExportRows, formatOperationalEventExportRows, paginateWithCursor, parseExportMetadataHeaders, serializeExportRecords } from '../../../utils/historicalExport';
 import { normalizeFsmState } from '../../../utils/oeeCalculations';
 
 export const demoMonitoring = {
@@ -68,7 +68,7 @@ export const demoMonitoring = {
     store.recordEndpoint('DOWNTIME_BY_DEVICE', endpoint);
 
     let items = store.downtimes.filter((d) => d.device_id === query.device_id);
-    if (query.category && query.category !== 'ALL') {
+    if (query.category) {
       items = items.filter((d) => d.category === query.category);
     }
     if (query.active_only) {
@@ -235,6 +235,14 @@ export const demoMonitoring = {
     // E20 P20.4 (FAT-156, D-12): filter lokal demo hanya untuk parameter
     // terdaftar `GET /operational-events` — tanpa `machine_id` (hanya
     // /system/audit) dan tanpa `severity` (tidak didukung).
+    // P33.4 (FAT-294, B33.1/B33.4): + `category` + `alarmState` (terdaftar
+    // di kontrak live 2026-11-23).
+    if (query.category) {
+      items = items.filter((e) => e.category === query.category);
+    }
+    if (query.alarm_state) {
+      items = items.filter((e) => e.alarm_state === query.alarm_state);
+    }
     if (query.event_type && query.event_type !== 'ALL') {
       items = items.filter((e) => e.event_type === query.event_type);
     }
@@ -250,11 +258,26 @@ export const demoMonitoring = {
       if (!Number.isNaN(toMs)) items = items.filter((e) => new Date(e.recorded_at).getTime() <= toMs);
     }
 
-    return paginateWithCursor(items, (e) => e.recorded_at, {
+    const page = paginateWithCursor(items, (e) => e.recorded_at, {
       cursor: query.cursor,
       limit: query.limit ?? 50,
       maxLimit: 200,
     });
+    // P33.4 (FAT-294, B33.4): demo meniru kontrak server — `totalCount` =
+    // total baris yang cocok dengan filter (bukan panjang halaman) +
+    // `counts` per state (dipakai jumlah tab Alarm & Event).
+    return {
+      ...page,
+      pagination: {
+        ...page.pagination,
+        total_count: items.length,
+        counts: {
+          activeUnack: items.filter((e) => e.alarm_state === 'active-unack').length,
+          rtnUnack: items.filter((e) => e.alarm_state === 'rtn-unack').length,
+          acked: items.filter((e) => e.alarm_state === 'acked').length,
+        },
+      },
+    };
   },
 
   async exportOperationalEventsData(
@@ -334,6 +357,9 @@ export const demoMonitoring = {
       ev.acknowledged = true;
       ev.acknowledged_by = store.currentUserName;
       ev.acknowledged_at = new Date().toISOString();
+      // P33.4 (FAT-294): state alarm ikut berubah — badge membaca
+      // `alarm_state` server (di demo: field ini), bukan derivasi.
+      ev.alarm_state = 'acked';
     }
     if (note?.trim()) {
       ev.ack_note = note.trim();
@@ -349,26 +375,44 @@ export const demoMonitoring = {
   },
 
   // =========================================================================
-  // SYSTEM AUDIT (ADMIN + LAN only -> /api/v1/system/audit)
+  // SYSTEM AUDIT TRAIL (ADMIN + LAN only -> /api/v1/system/audit-trail)
   // =========================================================================
-  async getSystemAuditPage(
-    query: { from?: string; to?: string; event_type?: string; machine_id?: string; limit?: number; cursor?: string | null } = {},
+  /**
+   * P33.4 (FAT-294, B33.2): arsip audit demo membaca store TERPISAH
+   * (`store.auditTrail`) — cermin `GET /system/audit-trail`. Menggantikan
+   * `getSystemAuditPage` (`/system/audit`, alias feed operasional) — alias
+   * lama TIDAK dipakai lagi (satu alur kanonik). Filter `machine_id`
+   * dicocokkan ke record yang entitasnya mesin itu (demo tidak menyimpan
+   * `machine_id` per record arsip).
+   */
+  async getSystemAuditTrailPage(
+    query: SystemAuditTrailQuery = {},
     signal?: AbortSignal
   ): Promise<CursorPageResponse<AuditLogItem>> {
     checkAbort(signal);
     assertCapability('access_control.read', ['ADMIN']);
-    const qs = new URLSearchParams({ envelope: 'true' });
-    if (query.from) qs.set('from', query.from);
-    if (query.to) qs.set('to', query.to);
-    if (query.event_type) qs.set('event_type', query.event_type);
-    if (query.machine_id) qs.set('machine_id', query.machine_id);
-    if (query.limit) qs.set('limit', String(query.limit));
-    if (query.cursor) qs.set('cursor', query.cursor);
-    store.recordEndpoint('SYSTEM_AUDIT', `${ADMIN_ENDPOINTS.SYSTEM_AUDIT.buildPath()}?${qs.toString()}`);
+    const endpoint = buildSystemAuditTrailEndpoint(query);
+    store.recordEndpoint('SYSTEM_AUDIT_TRAIL', endpoint);
 
-    // P33.3 (FAT-293): satu sumber seperti live — /system/audit membaca
-    // store yang sama dengan /operational-events.
-    let items = [...store.operationalEvents];
+    let items = [...store.auditTrail];
+    if (query.actor) {
+      items = items.filter((a) => a.actor === query.actor);
+    }
+    if (query.category) {
+      items = items.filter((a) => a.category === query.category);
+    }
+    if (query.entityId) {
+      items = items.filter((a) => a.entity_id === query.entityId);
+    }
+    if (query.entityType) {
+      items = items.filter((a) => a.entity_type === query.entityType);
+    }
+    if (query.action && query.action !== 'ALL') {
+      items = items.filter((a) => a.action === query.action);
+    }
+    if (query.machine_id && query.machine_id !== 'ALL') {
+      items = items.filter((a) => a.entity_type === 'machine' && a.entity_id === query.machine_id);
+    }
     if (query.from) {
       const fromMs = new Date(query.from).getTime();
       if (!Number.isNaN(fromMs)) items = items.filter((a) => new Date(a.recorded_at).getTime() >= fromMs);
@@ -377,64 +421,68 @@ export const demoMonitoring = {
       const toMs = new Date(query.to).getTime();
       if (!Number.isNaN(toMs)) items = items.filter((a) => new Date(a.recorded_at).getTime() <= toMs);
     }
-    if (query.event_type && query.event_type !== 'ALL') {
-      items = items.filter((a) => a.event_type === query.event_type);
-    }
-    if (query.machine_id && query.machine_id !== 'ALL') {
-      items = items.filter((a) => a.machine_id === query.machine_id);
-    }
-    return paginateWithCursor(items, (a) => a.recorded_at, {
+    const page = paginateWithCursor(items, (a) => a.recorded_at, {
       cursor: query.cursor,
       limit: query.limit ?? 50,
       maxLimit: 200,
     });
+    // P33.4 (FAT-294, B33.2): `totalCount` demo = total baris yang cocok
+    // (cermin kontrak server) + retensi arsip demo.
+    return {
+      ...page,
+      pagination: { ...page.pagination, total_count: items.length, retention_days: RETENTION_POLICY_DAYS },
+    };
   },
 
   async getAuditLogs(signal?: AbortSignal): Promise<AuditLogItem[]> {
-    const page = await demoMonitoring.getSystemAuditPage({ limit: 200 }, signal);
+    const page = await demoMonitoring.getSystemAuditTrailPage({ limit: 200 }, signal);
     return page.data;
   },
 
   /**
-   * E20 P20.4 (FAT-156, O9): GET /system/audit/export (API doc §I) —
-   * csv/ndjson/json (default csv), limit 1..100000 default 10000, retensi
-   * 90 hari → 400 RETENTION_EXCEEDED, rate limit 5/min, guard
-   * `access_control.read` (D-13). Filter sama dengan daftar.
+   * P33.4 (FAT-294, B33.2): `GET /system/audit-trail/export` — csv/ndjson/
+   * json (default csv), limit 1..100000 default 10000, retensi 90 hari →
+   * 400 RETENTION_EXCEEDED, rate limit 5/min, guard `access_control.read`.
+   * Filter sama dengan daftar KECUALI `machine_id` (tidak terdaftar di
+   * endpoint ekspor live).
    */
-  async exportSystemAuditData(
-    query: SystemAuditExportQuery,
+  async exportSystemAuditTrailData(
+    query: SystemAuditTrailExportQuery,
     signal?: AbortSignal
   ): Promise<ExportResult> {
     checkAbort(signal);
-    const endpoint = buildSystemAuditExportEndpoint(query);
+    const endpoint = buildSystemAuditTrailExportEndpoint(query);
     assertCapability('access_control.read', ['ADMIN']);
-    store.assertExportRateLimit('SYSTEM_AUDIT_EXPORT');
-    store.recordEndpoint('SYSTEM_AUDIT_EXPORT', endpoint);
+    store.assertExportRateLimit('SYSTEM_AUDIT_TRAIL_EXPORT');
+    store.recordEndpoint('SYSTEM_AUDIT_TRAIL_EXPORT', endpoint);
 
     assertRetentionWindow(query.from, query.to, new Date(), RETENTION_POLICY_DAYS);
 
     const fromMs = new Date(query.from).getTime();
     const toMs = new Date(query.to).getTime();
-    const filtered = store.operationalEvents
+    const filtered = store.auditTrail
       .filter((a) => {
-        if (query.event_type && query.event_type !== 'ALL' && a.event_type !== query.event_type) return false;
-        if (query.machine_id && query.machine_id !== 'ALL' && a.machine_id !== query.machine_id) return false;
+        if (query.actor && a.actor !== query.actor) return false;
+        if (query.category && a.category !== query.category) return false;
+        if (query.entityId && a.entity_id !== query.entityId) return false;
+        if (query.entityType && a.entity_type !== query.entityType) return false;
+        if (query.action && query.action !== 'ALL' && a.action !== query.action) return false;
         const ts = new Date(a.recorded_at).getTime();
         return ts >= fromMs && ts <= toMs;
       })
       .sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime());
 
-    const rows = formatSystemAuditExportRows(filtered);
+    const rows = formatAuditTrailExportRows(filtered);
     const { content, mimeType, extension } = serializeExportRecords(rows, query.format);
     const generatedAt = new Date().toISOString();
     const metadata = parseExportMetadataHeaders({
-      'X-Export-Source': 'system_audit',
+      'X-Export-Source': 'system_audit_trail',
       'X-Export-Generated-At': generatedAt,
       'X-Export-Time-Window': `${query.from}..${query.to}`,
     });
 
     return {
-      filename: `system_audit_${generatedAt.slice(0, 10)}.${extension}`,
+      filename: `system_audit_trail_${generatedAt.slice(0, 10)}.${extension}`,
       mimeType,
       format: query.format,
       content,

@@ -167,14 +167,27 @@ export function mapAggregate(raw: unknown): TelemetryAggregatePoint {
   return mustParse(TelemetryAggregatePointSchema, item, 'agregat telemetri');
 }
 
-export function mapRollup(raw: unknown): TelemetryRollupItem {  const r = (raw ?? {}) as Record<string, unknown>;
+export function mapRollup(raw: unknown): TelemetryRollupItem {
+  const r = (raw ?? {}) as Record<string, unknown>;
   // E23 Batch 3 (FAT-195, N-26): spec live groupBy mencakup 'line'
   // (skema Zod diperluas); `lineId` item ikut dipetakan dan dipakai
   // sebagai groupKey baris lini.
   const lineId = (pick(r.lineId, r.line_id) as string | null) ?? null;
+  const groupBy = (pick(r.groupBy, r.group_by) as TelemetryRollupItem['groupBy']) ?? 'day';
+  // FAT-307: groupKey mengikuti groupBy baris. Sebelumnya pick selalu
+  // mendahulukan lineId/machineId sehingga rollup Per Hari (groupBy=day)
+  // menampilkan ID mesin di kolom TANGGAL — server mengirim `bucket`
+  // (tanggal) DAN `machineId`, dan machineId menang (terbukti live
+  // 2026-11-23: 3 baris "CNC-MILLING-SIM" di kolom TANGGAL).
+  const groupKey =
+    groupBy === 'day' || groupBy === 'month'
+      ? str(pick(r.bucket, r.groupKey, r.machineId, r.machine_id, r.lineId, r.line_id, r.deviceId, r.device_id), 'row')
+      : groupBy === 'line'
+        ? str(pick(r.groupKey, r.lineId, r.line_id, r.bucket), 'row')
+        : str(pick(r.groupKey, r.machineId, r.machine_id, r.deviceId, r.device_id, r.bucket), 'row');
   const item = {
-    groupBy: (pick(r.groupBy, r.group_by) as TelemetryRollupItem['groupBy']) ?? 'day',
-    groupKey: str(pick(r.groupKey, r.lineId, r.line_id, r.machineId, r.machine_id, r.deviceId, r.device_id, r.bucket), 'row'),
+    groupBy,
+    groupKey,
     bucket: (pick(r.bucket) as string | null) ?? null,
     machineId: (pick(r.machineId, r.machine_id) as string | null) ?? null,
     machine_id: (pick(r.machineId, r.machine_id) as string | null) ?? null,

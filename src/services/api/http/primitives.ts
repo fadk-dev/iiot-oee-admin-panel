@@ -33,12 +33,35 @@ export function splitList(raw: unknown): { items: unknown[]; meta: Record<string
 
 export function pageMeta(meta: Record<string, unknown> | null, fallbackLimit: number, count: number): CursorPageResponse<never>['pagination'] {
   const hasMore = Boolean(meta?.hasMore ?? meta?.has_more ?? false);
+  // P33.4 (FAT-294, B33.4): `totalCount` server kini TOTAL ASLI baris yang
+  // cocok dengan filter (bukan panjang halaman) — dibaca diutamakan atas
+  // `count` (panjang halaman). Bila `totalCount` tidak ada (endpoint lama),
+  // `count` tetap dipakai sebagai fallback seperti sebelumnya.
+  const totalCount =
+    meta?.totalCount !== undefined || meta?.total_count !== undefined
+      ? num(meta?.totalCount ?? meta?.total_count, count)
+      : meta?.count !== undefined
+        ? num(meta?.count, count)
+        : count;
+  const countsRaw = meta?.counts;
+  const counts =
+    countsRaw && typeof countsRaw === 'object'
+      ? {
+          activeUnack: num((countsRaw as Record<string, unknown>).activeUnack, 0),
+          rtnUnack: num((countsRaw as Record<string, unknown>).rtnUnack, 0),
+          acked: num((countsRaw as Record<string, unknown>).acked, 0),
+        }
+      : undefined;
   return {
     limit: num(meta?.limit, fallbackLimit),
     next_cursor: (meta?.nextCursor ?? meta?.next_cursor ?? null) as string | null,
     has_more: hasMore,
     truncated: Boolean(meta?.truncated ?? hasMore),
-    total_count: meta?.count !== undefined || meta?.total_count !== undefined ? num(meta?.count ?? meta?.total_count, count) : count,
+    total_count: totalCount,
+    ...(counts ? { counts } : {}),
+    ...(meta?.retentionDays !== undefined || meta?.retention_days !== undefined
+      ? { retention_days: num(meta?.retentionDays ?? meta?.retention_days, 0) }
+      : {}),
   };
 }
 

@@ -100,29 +100,51 @@ export const OperationalEventsPage: React.FC = () => {
     isValid
   );
 
+  // P33.4 (FAT-294, B33.4): jumlah tab butuh angka server untuk filter
+  // yang SAMA tanpa batasan tampilan (`acknowledged`) — di tampilan
+  // 'action' query daftar memakai `acknowledged=false` sehingga
+  // `totalCount`-nya hanya mencakup yang belum di-ack. Query ringan
+  // kedua (limit=1) mengambil `pagination.counts`/`totalCount` tanpa
+  // filter tampilan; di tampilan 'history' query daftar SUDAH tanpa
+  // filter tampilan, jadi query kedua tidak diperlukan (enabled=false).
+  const tabCountsQuery = useOperationalEventsQuery(
+    deviceFilter,
+    { ...filters, limit: 1 },
+    undefined,
+    {},
+    view === 'action' && isValid
+  );
+  const countsPagination = view === 'action' ? tabCountsQuery.data?.pagination : eventsQuery.data?.pagination;
+
   const events = eventsQuery.data?.data ?? [];
   const pagination = eventsQuery.data?.pagination;
 
-  // FAT-300 (P33.5): kolom Ack dan derivasi rtn-unack memakai daftar
-  // halaman PENUH (belum disaring tampilan) — lihat eventView.ts.
-  const columns = useOperationalEventColumns(setAckTarget, events);
+  // FAT-300 (P33.5) + P33.4 (FAT-294): kolom Ack membaca `alarm_state`
+  // server per baris — tanpa derivasi, tanpa daftar referensi.
+  const columns = useOperationalEventColumns(setAckTarget);
 
-  // Daftar tampil: saring menurut Filter State (derivasi dari halaman
-  // penuh), lalu urutkan tampilan Perlu Tindakan (aktif dulu, lalu clear).
+  // Daftar tampil: saring menurut Filter State (`alarm_state` server),
+  // lalu urutkan tampilan Perlu Tindakan (aktif dulu, lalu clear).
   // Tampilan Riwayat memakai urutan server (terbaru dulu).
   const displayEvents = useMemo(() => {
     const filtered = filterEventsByState(events, stateFilter);
-    return view === 'action' ? sortActionView(filtered, events) : filtered;
+    return view === 'action' ? sortActionView(filtered) : filtered;
   }, [events, stateFilter, view]);
 
-  // Jumlah tab dari halaman yang dimuat (batas bawah bila masih ada
-  // halaman berikut — lihat eventView.ts). Belum ada data → tanpa angka.
+  // Jumlah tab dari angka server (`totalCount`/`counts`) bila ada —
+  // pasti, tanpa "+". Belum ada data → tanpa angka.
   const tabCounts = useMemo(
     () =>
       eventsQuery.data
-        ? describeTabCounts(events, cursorStack.length - 1, Boolean(pagination?.has_more))
+        ? describeTabCounts({
+            events,
+            pageIndex: cursorStack.length - 1,
+            hasMore: Boolean(pagination?.has_more),
+            totalCount: countsPagination?.total_count,
+            counts: countsPagination?.counts,
+          })
         : undefined,
-    [eventsQuery.data, events, cursorStack.length, pagination?.has_more]
+    [eventsQuery.data, events, cursorStack.length, pagination?.has_more, countsPagination]
   );
 
   const isGlobalScope = deviceFilter === 'ALL';

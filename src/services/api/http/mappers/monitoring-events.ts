@@ -4,9 +4,23 @@
  * Dipisah dari mappers/monitoring.ts pada refactoring E31.15 (FAT-278, R10:
  * satu file mapper = satu domain). Barrel penggabung: mappers/monitoring.ts.
  */
-import { AuditLogItem } from '../../../../types/system';
-import { OperationalEvent } from '../../../../types/monitoring';
-import { str, pick } from '../primitives';
+import { AuditTrailRecord, AuditTrailSource } from '../../../../types/system';
+import { AlarmState, EventCategory, EventCondition, OperationalEvent } from '../../../../types/monitoring';
+import { num, str, pick } from '../primitives';
+
+/** Nilai `category` server yang sah; selainnya → fallback 'system' (di bawah). */
+function readEventCategory(v: unknown): EventCategory | null {
+  return v === 'operational' || v === 'system' ? v : null;
+}
+
+/** Nilai `alarmState` server yang sah; selainnya → null (fallback di pemanggil). */
+function readAlarmState(v: unknown): AlarmState | null {
+  return v === 'active-unack' || v === 'rtn-unack' || v === 'acked' ? v : null;
+}
+
+function readEventCondition(v: unknown): EventCondition | null {
+  return v === 'ACTIVE' || v === 'CLEAR' || v === 'NORMAL' ? v : null;
+}
 
 /**
  * E20 P20.4 (FAT-156): `OperationalEventItem` FR-034-01 persis (API doc §I).
@@ -34,6 +48,7 @@ export function mapOperationalEvent(raw: unknown): OperationalEvent {
   const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
   const numOrNull = (v: unknown): number | null =>
     typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const acknowledged = acknowledgedAt !== undefined && acknowledgedAt !== null;
   return {
     id: String(pick(r.id) ?? ''),
     recorded_at: strOrEmpty(recordedAt),
@@ -48,21 +63,63 @@ export function mapOperationalEvent(raw: unknown): OperationalEvent {
     snapshot_total_count: numOrNull(pick(r.snapshotTotalCount, r.snapshot_total_count)),
     snapshot_run_sec: numOrNull(pick(r.snapshotRunSec, r.snapshot_run_sec)),
     description: str(pick(r.description), ''),
-    acknowledged: acknowledgedAt !== undefined && acknowledgedAt !== null,
+    acknowledged,
     acknowledged_at: strOrNull(acknowledgedAt),
     acknowledged_by: strOrNull(pick(r.acknowledgedBy, r.acknowledged_by)),
     ack_note: strOrNull(pick(r.ackNote, r.ack_note, r.note)),
     created_at: strOrEmpty(createdAt ?? recordedAt),
+    // P33.4 (FAT-294, B33.1/B33.4): `category` + `alarmState` + `condition`
+    // dibaca dari server (kontrak live, OpenAPI 2026-11-23). Fallback hanya
+    // untuk respons backend lama yang belum mengirimnya — BUKAN tebakan
+    // atas data baru: kategori → 'system' (lebih aman tampil di arsip
+    // audit daripada hilang dari kedua keluarga — alasan yang sama dengan
+    // `eventCategory.ts`); alarm → 'acked' bila sudah di-ack, selainnya
+    // 'active-unack' (tampilkan "Belum Ack", jangan sembunyikan baris);
+    // `condition` null bila tak ada (tidak ada default yang aman).
+    category: readEventCategory(pick(r.category)) ?? 'system',
+    alarm_state: readAlarmState(pick(r.alarmState, r.alarm_state)) ?? (acknowledged ? 'acked' : 'active-unack'),
+    condition: readEventCondition(pick(r.condition)),
   };
 }
 
 /**
- * E20 P20.4 (FAT-156): `/system/audit` adalah alias audit trail global yang
- * mengembalikan `OperationalEventItem[]` (API doc §I) — tidak ada field
- * karangan (`operator_id`/`operator_name`, `action`, `resource_type`,
- * `resource_id`, `client_ip`, `access_mode`). Mapper audit = mapper
- * operational-event, tanpa tambahan apa pun.
+ * P33.4 (FAT-294, B33.2): mapper record arsip audit — `GET
+ * /system/audit-trail` (§2 docs/BACKEND_REQUIREMENTS_E33_PAGES.md).
+ * Bentuknya BUKAN `OperationalEventItem`: `seq`, `actor`, `action`,
+ * `entity*`, `oldValue`/`newValue`, `reason`, `source`, `prevHash`/`hash`.
+ * `oldValue`/`newValue` dipertahankan APA ADANYA (JSON bebas — objek,
+ * skalar, atau null eksplisit); null eksplisit bermakna (pembuatan /
+ * penghapusan) sehingga dibaca langsung dari field, bukan lewat `pick`
+ * (pick melewatkan null). `source` di luar enum kanonik → 'system'
+ * (aksi otomatis — nilai paling netral).
  */
-export function mapAuditLog(raw: unknown): AuditLogItem {
-  return mapOperationalEvent(raw);
+export function mapAuditTrailRecord(raw: unknown): AuditTrailRecord {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const strOrEmpty = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+  const valueOrNull = (camel: string, snake: string): unknown =>
+    r[camel] !== undefined ? r[camel] : r[snake] !== undefined ? r[snake] : null;
+  const sourceRaw = pick(r.source);
+  const source: AuditTrailSource =
+    sourceRaw === 'panel' || sourceRaw === 'hmi' || sourceRaw === 'api' || sourceRaw === 'system'
+      ? sourceRaw
+      : 'system';
+  return {
+    id: String(pick(r.id) ?? ''),
+    seq: num(pick(r.seq), 0),
+    recorded_at: strOrEmpty(pick(r.recordedAt, r.recorded_at)),
+    actor: str(pick(r.actor), 'system'),
+    actor_role: strOrNull(pick(r.actorRole, r.actor_role)),
+    action: str(pick(r.action), ''),
+    category: readEventCategory(pick(r.category)) ?? 'system',
+    entity_type: strOrNull(pick(r.entityType, r.entity_type)),
+    entity_id: strOrNull(pick(r.entityId, r.entity_id)),
+    entity_label: strOrNull(pick(r.entityLabel, r.entity_label)),
+    old_value: valueOrNull('oldValue', 'old_value'),
+    new_value: valueOrNull('newValue', 'new_value'),
+    reason: strOrNull(pick(r.reason)),
+    source,
+    prev_hash: strOrNull(pick(r.prevHash, r.prev_hash)),
+    hash: strOrNull(pick(r.hash, r.hash)),
+  };
 }
