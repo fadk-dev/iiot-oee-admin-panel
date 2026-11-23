@@ -4596,3 +4596,42 @@ checkout lama akan menghapus 98 file remote — dilarang.
 - Ekspor CSV: satu panggilan `limit=1000` + filter server; bila masih ada
   baris di luar itu, `exportTruncated=true` + catatan amber.
 - `pageCount` hanya informatif (`ceil(totalCount/25)`).
+
+## §67 — Perbaiki 25 error tsc + 7 tes gagal (fallout rename P33.4)
+
+**Status: SELESAI LOKAL, belum push.**
+Perintah Fathur 2026-11-23 ("ya, perbaiki semua"): remote main (0a31283)
+tsc 25 error + 15 baris gagal tes (7 tes unik) — semuanya pra-ada sejak
+P33.4, BUKAN akibat Push #26. Akar: P33.4 mengganti nama di monolit checkout
+lama (`SystemAudit` → `SystemAuditTrail`, `auditLogs` → `auditTrail` /
+`operationalEvents`) tapi file-file split di remote tidak ikut diperbarui.
+
+### Yang diperbaiki (9 file + 1 hapus)
+
+1. `src/services/api/demo/monitoring/audit.ts` DIHAPUS — file yatim
+   (orphan): tidak diimpor siapa pun; `demo/monitoring.ts` (barrel) sudah
+   punya `getSystemAuditTrailPage` + `exportSystemAuditTrailData` yang
+   membaca `store.auditTrail`. Fungsinya (`getSystemAuditPage` /
+   `exportSystemAuditData` alias lama) sudah tidak punya pemanggil.
+2. 4 file tes aset (`bindingAuthorization`, `bindingConcurrency`,
+   `deviceManagement`, `machineManagement`): `store.auditLogs` →
+   `store.auditTrail` (snapshot/restore + asersi "zero side-effects") —
+   arsip audit kini di `auditTrail`, bukan `auditLogs` yang dihapus P33.3.
+3. `deviceManagement.test.ts`: literal `OperationalEvent` DEVICE_OFFLINE
+   dilengkapi `category: 'operational'`, `alarm_state: 'acked'`,
+   `condition: 'ACTIVE'` (sama seperti literal identik di
+   `deviceMachineBinding.test.ts`; 'acked' = sudah di-ack per aturan mapper).
+4. `e23-batch3-exports.test.ts` + `endpointCoverage.test.ts`:
+   `exportSystemAuditData` → `exportSystemAuditTrailData`.
+5. `httpContract.test.ts`: `SYSTEM_AUDIT_EXPORT` →
+   `SYSTEM_AUDIT_TRAIL_EXPORT` + path `/api/v1/system/audit-trail/export`
+   (registry tetap 137 kunci).
+
+### Verifikasi (worktree, 2026-11-23)
+
+- `npx tsc --noEmit`: **0 error** (dari 25).
+- Tes: **647 lolos / 0 gagal** (dari 640 lolos / 15 baris gagal = 7 tes unik
+  — semuanya kini lolos).
+- Build OK. Checker 0 FAIL / 15 WARN.
+- Tidak ada perubahan perilaku panel (hanya tes + file yatim + nama endpoint
+  di tes).

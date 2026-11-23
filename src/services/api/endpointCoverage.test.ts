@@ -172,7 +172,7 @@ test('100% of ADMIN_ENDPOINTS catalog keys are wired and callable through apiCli
   await apiClient.acknowledgeOperationalEvent('op-ev-101', 'Verified in contract test');
   await apiClient.getAuditLogs();
   // E20 P20.4 (FAT-156, O9): ekspor system-audit (guard access_control.read).
-  const auditExport = await apiClient.exportSystemAuditData({
+  const auditExport = await apiClient.exportSystemAuditTrailData({
     from: weekAgoIso,
     to: nowIso,
     format: 'csv',

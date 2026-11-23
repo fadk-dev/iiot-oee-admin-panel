@@ -68,7 +68,7 @@ test('E20 P20.5 (FAT-157): registry 137 ops admin (136 + SYSTEM_ACCESS_MODE 09:2
   assert.ok(buildOperationalEventsEndpoint({}).startsWith('/api/v1/operational-events'));
   assert.equal(buildOperationalEventsEndpoint({}).includes('/operational-events/'), false);
   assert.equal(ADMIN_ENDPOINTS.HEALTH_DETAIL.buildPath(), '/health/detail');
-  assert.equal(ADMIN_ENDPOINTS.SYSTEM_AUDIT_EXPORT.buildPath(), '/api/v1/system/audit/export');
+  assert.equal(ADMIN_ENDPOINTS.SYSTEM_AUDIT_TRAIL_EXPORT.buildPath(), '/api/v1/system/audit-trail/export');
   assert.equal(Object.keys(ADMIN_ENDPOINTS).length, 137);
   for (const p of ['/command', '/dispatch', '/complete', '/work-orders/validate-zone', '/work-orders/initiate-from-zones']) {
     assert.ok((FORBIDDEN_ENDPOINT_PATTERNS as readonly string[]).includes(p), `forbidden: ${p}`);

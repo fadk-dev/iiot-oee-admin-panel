@@ -16,7 +16,7 @@ function snapshotStore() {
     workOrders: store.workOrders.map((w) => ({ ...w })),
     downtimes: store.downtimes.map((dt) => ({ ...dt })),
     operationalEvents: store.operationalEvents.map((ev) => ({ ...ev })),
-    auditLogs: store.auditLogs.map((al) => ({ ...al })),
+    auditTrail: store.auditTrail.map((al) => ({ ...al })),
     iamAuditDecisions: store.iamAuditDecisions.map((d) => ({ ...d })),
     role: apiClient.getUserRole(),
     network: apiClient.getNetworkMode(),
@@ -35,7 +35,7 @@ function restoreStore(snap: ReturnType<typeof snapshotStore>) {
   store.workOrders = snap.workOrders;
   store.downtimes = snap.downtimes;
   store.operationalEvents = snap.operationalEvents;
-  store.auditLogs = snap.auditLogs;
+  store.auditTrail = snap.auditTrail;
   store.iamAuditDecisions = snap.iamAuditDecisions;
   apiClient.setNetworkMode(snap.network);
   apiClient.setIamMode(snap.iamMode);
@@ -160,6 +160,9 @@ test('Test A — Device Management Workflow (READ list/detail, CREATE, UPDATE im
       machine_name: null,
       wo_id: null,
       event_type: 'DEVICE_OFFLINE',
+      category: 'operational',
+      alarm_state: 'acked',
+      condition: 'ACTIVE',
       trigger_source: 'DEVICE',
       event_code: null,
       snapshot_total_count: null,

@@ -15,7 +15,7 @@ function snapshotStore() {
     workOrders: store.workOrders.map((w) => ({ ...w })),
     downtimes: store.downtimes.map((dt) => ({ ...dt })),
     operationalEvents: store.operationalEvents.map((ev) => ({ ...ev })),
-    auditLogs: store.auditLogs.map((al) => ({ ...al })),
+    auditTrail: store.auditTrail.map((al) => ({ ...al })),
     iamAuditDecisions: store.iamAuditDecisions.map((d) => ({ ...d })),
     role: apiClient.getUserRole(),
     network: apiClient.getNetworkMode(),
@@ -34,7 +34,7 @@ function restoreStore(snap: ReturnType<typeof snapshotStore>) {
   store.workOrders = snap.workOrders;
   store.downtimes = snap.downtimes;
   store.operationalEvents = snap.operationalEvents;
-  store.auditLogs = snap.auditLogs;
+  store.auditTrail = snap.auditTrail;
   store.iamAuditDecisions = snap.iamAuditDecisions;
   apiClient.setNetworkMode(snap.network);
   apiClient.setIamMode(snap.iamMode);
@@ -51,7 +51,7 @@ test('Test E — Authorization, Network Perimeter & Zero Side-Effects on Denial'
     const wsEvents: TelemetryWsEvent[] = [];
     const unsub = telemetrySocket.subscribe((ev) => wsEvents.push(ev));
     try {
-      const initialAudits = store.auditLogs.length;
+      const initialAudits = store.auditTrail.length;
       const initialOpEvents = store.operationalEvents.length;
 
       // E1: Non-ADMIN roles on LAN cannot mutate devices, machines, or bindings
@@ -117,7 +117,7 @@ test('Test E — Authorization, Network Perimeter & Zero Side-Effects on Denial'
       assert.equal(unauthFired, true);
 
       // E4: Zero audit logs, operational events, or WS events leaked from denied operations
-      assert.equal(store.auditLogs.length, initialAudits);
+      assert.equal(store.auditTrail.length, initialAudits);
       assert.equal(store.operationalEvents.length, initialOpEvents);
       assert.equal(wsEvents.length, 0);
     } finally {

@@ -106,7 +106,7 @@ test('E23 N-24 (FAT-193): keenam jalur ekspor menguraikan body JSON-encoded menj
     const opDev = await httpApiClient.exportOperationalEventsData({ device_id: 'STM32-OEE-01', from: FROM, to: TO, format: 'csv' });
     assert.equal(opDev.content, CSV);
     assert.equal(opDev.rowCount, 2);
-    const audit = await httpApiClient.exportSystemAuditData({ from: FROM, to: TO, format: 'csv' });
+    const audit = await httpApiClient.exportSystemAuditTrailData({ from: FROM, to: TO, format: 'csv' });
     assert.equal(audit.content, CSV);
     assert.equal(audit.rowCount, 2);
     const tel = await httpApiClient.exportTelemetryData({ device_id: 'STM32-OEE-01', from: FROM, to: TO, format: 'csv' });
